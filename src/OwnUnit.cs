@@ -28,7 +28,7 @@ namespace WorldBoxMP
         public static void Step()
         {
             Actor actor = ControllableUnit.getControllableUnit();
-            if (actor == null || !actor.isAlive() || SmoothLoader.isLoading())
+            if (actor == null || !actor.isAlive() || SmoothLoader.isLoading() || SpecialActors.IsSpecial(actor))
             {
                 Reset();
                 return;

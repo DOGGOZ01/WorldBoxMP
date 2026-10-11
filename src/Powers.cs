@@ -37,6 +37,8 @@ namespace WorldBoxMP
             Net.Peer.Send(Msg.Power, ms.ToArray());
         }
 
+        public static bool ApplyingRemote;
+
         public static void ApplyRemoteClick(byte[] data)
         {
             var r = new BinaryReader(new MemoryStream(data));
@@ -52,6 +54,8 @@ namespace WorldBoxMP
                 Debug.Log("[WorldBoxMP] unknown power from client: " + id);
                 return;
             }
+            ActorAsset spawned = AssetManager.actor_library.get(id);
+            if (spawned != null && spawned.skip_save) SpecialActors.ExpectFriendCreature(id);
 
             if (Time.unscaledTime - _lastRemoteClick > StrokeGap)
             {
@@ -68,6 +72,7 @@ namespace WorldBoxMP
             WorldTile hostTile = FirstTile(pc);
             TileType hostType = FirstType(pc);
             TopTileType hostTopType = FirstTopType(pc);
+            ApplyingRemote = true;
             try
             {
                 if (!string.IsNullOrEmpty(brush)) Config.current_brush = brush;
@@ -86,6 +91,7 @@ namespace WorldBoxMP
             }
             finally
             {
+                ApplyingRemote = false;
                 Config.current_brush = hostBrush;
                 ClickTimer(pc) = hostTimer;
                 FirstTile(pc) = hostTile;

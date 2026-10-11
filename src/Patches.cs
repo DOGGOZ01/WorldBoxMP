@@ -6,13 +6,24 @@ namespace WorldBoxMP
     [HarmonyPatch(typeof(MapBox), "checkMainSimulationUpdate")]
     static class FreezeClientSimulation
     {
-        static bool Prefix() => !Net.IsClientConnected;
+        static bool Prefix() => !Net.IsClientConnected && !Net.MirrorWorld;
     }
 
     [HarmonyPatch(typeof(AutoSaveManager), "update")]
     static class NoClientAutosave
     {
-        static bool Prefix() => !Net.IsClientConnected;
+        static bool Prefix() => !Net.IsClientConnected && !Net.MirrorWorld;
+    }
+
+    [HarmonyPatch(typeof(MapBox), nameof(MapBox.clearWorld))]
+    static class OwnWorldAgain
+    {
+        static void Prefix()
+        {
+            if (Net.IsClientConnected || !Net.MirrorWorld) return;
+            Net.MirrorWorld = false;
+            Debug.Log("[WorldBoxMP] the host's world copy is replaced; this world simulates on its own again");
+        }
     }
 
     [HarmonyPatch(typeof(BuildingManager), "canBuildFrom")]

@@ -11,6 +11,8 @@ namespace WorldBoxMP
         public static int Matches { get; private set; }
         public static int Mismatches { get; private set; }
         public static int Consecutive { get; private set; }
+        static int _seq;
+        public const int DumpEvery = 5;
 
         public static int CityZoneCount(City c) => CityZones(c).Count;
 
@@ -35,7 +37,7 @@ namespace WorldBoxMP
                 if (Access.BuildingData(b).state != BuildingState.Removed) s.Buildings++;
             long h = 17;
             foreach (WorldTile t in Access.TilesList(w))
-                h = h * 31 + t.main_type.id.GetHashCode() * 7 + (t.top_type != null ? t.top_type.id.GetHashCode() : 0);
+                h = h * 31 + t.main_type.id.GetHashCode() * 7 + (t.top_type != null ? t.top_type.id.GetHashCode() : 0) + (t.data.frozen ? 1 : 0);
             s.Terrain = h;
             s.Kingdoms = w.kingdoms.Count;
             s.Cities = w.cities.Count;
@@ -58,6 +60,8 @@ namespace WorldBoxMP
 
         public static void Write(BinaryWriter w)
         {
+            int seq = ++_seq;
+            w.Write(seq);
             State s = Take();
             w.Write(s.Units);
             w.Write(s.Buildings);
@@ -66,16 +70,21 @@ namespace WorldBoxMP
             w.Write(s.Cities);
             w.Write(s.Borders);
             w.Write(s.Names);
+            MetaSync.WriteAggregates(w);
+            if (seq % DumpEvery == 0) SessionLog.DumpState(seq);
         }
 
         public static void Compare(BinaryReader r)
         {
+            int seq = r.ReadInt32();
             var host = new State
             {
                 Units = r.ReadInt32(), Buildings = r.ReadInt32(), Terrain = r.ReadInt64(),
                 Kingdoms = r.ReadInt32(), Cities = r.ReadInt32(), Borders = r.ReadInt64(), Names = r.ReadInt64(),
             };
             State mine = Take();
+            MetaSync.CompareAggregates(r, seq);
+            if (seq % DumpEvery == 0) SessionLog.DumpState(seq);
             if (host.Units == mine.Units && host.Buildings == mine.Buildings && host.Terrain == mine.Terrain &&
                 host.Kingdoms == mine.Kingdoms && host.Cities == mine.Cities && host.Borders == mine.Borders &&
                 host.Names == mine.Names)
@@ -86,13 +95,16 @@ namespace WorldBoxMP
             }
             Mismatches++;
             Consecutive++;
-            Debug.Log("[WorldBoxMP] desync: host units=" + host.Units + " buildings=" + host.Buildings +
+            if (host.Units != mine.Units) ObjectRepair.Ask(ObjectRepair.Units, seq);
+            if (host.Buildings != mine.Buildings) ObjectRepair.Ask(ObjectRepair.Buildings, seq);
+            if (host.Terrain != mine.Terrain) ObjectRepair.Ask(ObjectRepair.Tiles, seq);
+            Debug.Log("[WorldBoxMP] desync at check " + seq + ": host units=" + host.Units + " buildings=" + host.Buildings +
                       " terrain=" + host.Terrain.ToString("x") + " kingdoms=" + host.Kingdoms + " cities=" + host.Cities +
                       " borders=" + host.Borders.ToString("x") + " | client units=" + mine.Units +
                       " buildings=" + mine.Buildings + " terrain=" + mine.Terrain.ToString("x") + " kingdoms=" + mine.Kingdoms +
                       " cities=" + mine.Cities + " borders=" + mine.Borders.ToString("x") +
                       (host.Names != mine.Names ? " NAMES DIFFER" : ""));
-            if (Consecutive == 1) SessionLog.DumpState();
+            if (Consecutive == 1 && seq % DumpEvery != 0) SessionLog.DumpState(seq);
         }
 
         public static void Reset()

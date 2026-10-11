@@ -19,6 +19,18 @@ namespace WorldBoxMP
         PossessInput = 8,
         Names = 9,
         Look = 10,
+        MetaCheck = 11,
+        MetaRepair = 12,
+        Ping = 13,
+        Pong = 14,
+        Edit = 15,
+        Cursor = 16,
+        Pos = 17,
+        View = 18,
+        BucketCheck = 19,
+        BucketList = 20,
+        ObjRepair = 21,
+        Order = 22,
     }
 
     public struct Packet
@@ -35,6 +47,9 @@ namespace WorldBoxMP
         public abstract bool Closed { get; }
         public abstract string Remote { get; }
         public abstract void Send(Msg type, byte[] data);
+        public virtual void SendUnreliable(Msg type, byte[] data) => Send(type, data);
+        public virtual long PendingBytes => 0;
+        public virtual int SendRate => 0;
         public virtual void Pump() { }
         public abstract void Dispose();
     }
@@ -46,6 +61,9 @@ namespace WorldBoxMP
         readonly TcpClient _tcp;
         readonly NetworkStream _stream;
         readonly object _sendLock = new object();
+        readonly ConcurrentQueue<byte[]> _throttled = new ConcurrentQueue<byte[]>();
+        long _throttledBytes;
+        Thread _throttle;
         readonly Thread _reader;
         volatile bool _closed;
         readonly string _remote;
@@ -97,10 +115,35 @@ namespace WorldBoxMP
             return buf;
         }
 
+        public override long PendingBytes => Interlocked.Read(ref _throttledBytes);
+        public override int SendRate => TestHarness.RateKiBps > 0 ? TestHarness.RateKiBps * 1024 : 0;
+
+        public override void SendUnreliable(Msg type, byte[] data)
+        {
+            if (TestHarness.RateKiBps > 0 && PendingBytes > TestHarness.RateKiBps * 1024 / 10) return;
+            Send(type, data);
+        }
+
         public override void Send(Msg type, byte[] data)
         {
+            NetStats.CountOut(data);
             if (_closed) return;
             data = data ?? new byte[0];
+            if (TestHarness.RateKiBps > 0)
+            {
+                var frame = new byte[data.Length + 5];
+                BitConverter.GetBytes(data.Length + 1).CopyTo(frame, 0);
+                frame[4] = (byte)type;
+                Buffer.BlockCopy(data, 0, frame, 5, data.Length);
+                Interlocked.Add(ref _throttledBytes, frame.Length);
+                _throttled.Enqueue(frame);
+                if (_throttle == null)
+                {
+                    _throttle = new Thread(ThrottleLoop) { IsBackground = true, Name = "WorldBoxMP rate limit" };
+                    _throttle.Start();
+                }
+                return;
+            }
             try
             {
                 lock (_sendLock)
@@ -119,6 +162,31 @@ namespace WorldBoxMP
             }
         }
 
+        void ThrottleLoop()
+        {
+            try
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                double sent = 0;
+                while (!_closed)
+                {
+                    if (!_throttled.TryDequeue(out byte[] frame)) { Thread.Sleep(2); continue; }
+                    lock (_sendLock) _stream.Write(frame, 0, frame.Length);
+                    Interlocked.Add(ref _throttledBytes, -frame.Length);
+                    sent += frame.Length;
+                    double rate = TestHarness.RateKiBps * 1024.0;
+                    double ahead = sent / rate - clock.Elapsed.TotalSeconds;
+                    if (ahead > 0) Thread.Sleep((int)(ahead * 1000));
+                    if (clock.Elapsed.TotalSeconds > 5) { clock.Restart(); sent = 0; }
+                }
+            }
+            catch (Exception e)
+            {
+                if (!_closed) UnityEngine.Debug.Log("[WorldBoxMP] send failed: " + e.Message);
+                _closed = true;
+            }
+        }
+
         public override void Dispose()
         {
             _closed = true;
@@ -128,7 +196,7 @@ namespace WorldBoxMP
 
     public static class Net
     {
-        public const int ProtocolVersion = 8;
+        public const int ProtocolVersion = 14;
 
         public static Role Role { get; private set; } = Role.None;
         public static Peer Peer { get; private set; }
@@ -137,6 +205,8 @@ namespace WorldBoxMP
         static readonly ConcurrentQueue<Peer> _accepted = new ConcurrentQueue<Peer>();
 
         public static bool IsClientConnected => Role == Role.Client && Peer != null && !Peer.Closed;
+
+        public static bool MirrorWorld;
         public static bool IsHostWithPeer => Role == Role.Host && Peer != null && !Peer.Closed;
 
         public static void StartHost(int port)

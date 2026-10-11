@@ -39,7 +39,7 @@
   <!-- dotnet build -p:Deploy=true copies the mod into <game>/Mods/WorldBoxMP -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Deploy)' == 'true'">
     <ItemGroup>
-      <ModFiles Include="$(OutDir)WorldBoxMP.dll;$(OutDir)WorldBoxMP.pdb;mod.json" />
+      <ModFiles Include="$(OutDir)WorldBoxMP.dll;$(OutDir)WorldBoxMP.pdb;mod.json;package/collect_logs.ps1;package/СОБРАТЬ_ЛОГИ.bat;package/README_RU.txt" />
     </ItemGroup>
     <Copy SourceFiles="@(ModFiles)" DestinationFolder="$(GameDir)\Mods\WorldBoxMP" />
   </Target>

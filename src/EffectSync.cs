@@ -7,7 +7,7 @@ namespace WorldBoxMP
 {
     public static class EffectSync
     {
-        enum Kind : byte { Spawn = 1, SpawnAt = 2, SpawnAtTile = 3, ExplosionWave = 4, Slash = 5 }
+        enum Kind : byte { Spawn = 1, SpawnAt = 2, SpawnAtTile = 3, ExplosionWave = 4, Slash = 5, HitFlash = 6, Shake = 7, MetaEvent = 8, Particle = 9 }
 
         struct Fx
         {
@@ -19,6 +19,9 @@ namespace WorldBoxMP
         }
 
         const int MaxPerTick = 200;
+        const int MaxFlashesPerTick = 150;
+        const int MaxParticlesPerTick = 150;
+        static int _flashes, _particles;
         static readonly List<Fx> _pending = new List<Fx>();
         static int _depth;
         static bool _inEffectUpdate;
@@ -28,8 +31,71 @@ namespace WorldBoxMP
 
         static void Record(Fx fx)
         {
-            if (_depth != 1 || !Recording || _pending.Count >= MaxPerTick) return;
+            if (_depth != 1 || !Recording || _pending.Count >= (Flow.Level == 2 ? MaxPerTick / 4 : MaxPerTick)) return;
             _pending.Add(fx);
+        }
+
+        static void RecordDirect(Fx fx)
+        {
+            if (!Recording || _pending.Count >= MaxPerTick + MaxFlashesPerTick) return;
+            if (Flow.Level >= 1 && (fx.Kind == Kind.HitFlash || fx.Kind == Kind.Particle || fx.Kind == Kind.MetaEvent)) return;
+            if (fx.Kind == Kind.HitFlash && _flashes++ >= MaxFlashesPerTick) return;
+            if (fx.Kind == Kind.Particle && _particles++ >= MaxParticlesPerTick) return;
+            _pending.Add(fx);
+        }
+
+        [HarmonyPatch(typeof(Actor), nameof(Actor.startColorEffect))]
+        static class CaptureHitFlash
+        {
+            static void Prefix(Actor __instance, ActorColorEffect pColorType)
+            {
+                if (__instance.asset != null && __instance.asset.effect_damage)
+                    RecordDirect(new Fx { Kind = Kind.HitFlash, Id = "hit", P1 = __instance.getID().ToString(), F1 = (float)(int)pColorType, Tile = -1 });
+            }
+        }
+
+        [HarmonyPatch(typeof(EffectsLibrary), nameof(EffectsLibrary.showMetaEventEffect), typeof(string), typeof(Vector2), typeof(TileZone), typeof(float))]
+        static class CaptureMetaEvent
+        {
+            static void Prefix(string pID, Vector2 pPosition, float pScale)
+            {
+                _depth++;
+                if (_depth == 1) RecordDirect(new Fx { Kind = Kind.MetaEvent, Id = pID, X = pPosition.x, Y = pPosition.y, F1 = pScale, Tile = -1 });
+            }
+            static void Finalizer() => _depth--;
+        }
+
+        [HarmonyPatch(typeof(EffectsLibrary), nameof(EffectsLibrary.showMetaEventEffect), typeof(string), typeof(Actor))]
+        static class CaptureMetaEventActor
+        {
+            static void Prefix(string pID, Actor pActor)
+            {
+                _depth++;
+                if (_depth == 1 && pActor != null)
+                    RecordDirect(new Fx { Kind = Kind.MetaEvent, Id = pID, X = pActor.current_position.x, Y = pActor.current_position.y, F1 = pActor.current_scale.x, Tile = -1 });
+            }
+            static void Finalizer() => _depth--;
+        }
+
+        [HarmonyPatch(typeof(Actor), nameof(Actor.spawnParticle))]
+        static class CaptureParticle
+        {
+            static void Prefix(Actor __instance, Color pColor)
+            {
+                _depth++;
+                if (_depth == 1)
+                    RecordDirect(new Fx { Kind = Kind.Particle, Id = "particle", P1 = __instance.getID().ToString(), X = pColor.r, Y = pColor.g, F1 = pColor.b, F2 = pColor.a, Tile = -1 });
+            }
+            static void Finalizer() => _depth--;
+        }
+
+        [HarmonyPatch(typeof(MapBox), nameof(MapBox.startShake))]
+        static class CaptureShake
+        {
+            static void Prefix(float pDuration, float pInterval, float pIntensity, bool pShakeX, bool pShakeY)
+            {
+                RecordDirect(new Fx { Kind = Kind.Shake, Id = "shake", F1 = pDuration, F2 = pIntensity, X = pInterval, Y = (pShakeX ? 1 : 0) | (pShakeY ? 2 : 0), Tile = -1 });
+            }
         }
 
         public static void Write(BinaryWriter w)
@@ -48,6 +114,8 @@ namespace WorldBoxMP
                 w.Write(f.Tile);
             }
             _pending.Clear();
+            _flashes = 0;
+            _particles = 0;
         }
 
         public static void Reset() => _pending.Clear();
@@ -87,6 +155,21 @@ namespace WorldBoxMP
                                 break;
                             case Kind.Slash:
                                 EffectsLibrary.spawnSlash(new Vector2(x, y), p1, f1, f2);
+                                break;
+                            case Kind.HitFlash:
+                                Actor hit = long.TryParse(p1, out long hitId) ? World.world.units.get(hitId) : null;
+                                if (hit != null && hit.isAlive()) hit.startColorEffect((ActorColorEffect)(int)f1);
+                                break;
+                            case Kind.Particle:
+                                Actor glowing = long.TryParse(p1, out long glowId) ? World.world.units.get(glowId) : null;
+                                if (glowing != null && glowing.isAlive()) glowing.spawnParticle(new Color(x, y, f1, f2));
+                                break;
+                            case Kind.MetaEvent:
+                                WorldTile at = World.world.GetTile((int)x, (int)y);
+                                if (at != null) EffectsLibrary.showMetaEventEffect(id, new Vector2(x, y), at.zone, f1);
+                                break;
+                            case Kind.Shake:
+                                World.world.startShake(f1, x, f2, ((int)y & 1) != 0, ((int)y & 2) != 0);
                                 break;
                         }
                     }
@@ -208,6 +291,20 @@ namespace WorldBoxMP
                 return false;
             }
         }
+
+        [HarmonyPatch(typeof(ActorManager), nameof(ActorManager.createNewUnit))]
+        static class NoNewUnits
+        {
+            static bool Prefix(ref Actor __result)
+            {
+                if (!Off) return true;
+                __result = null;
+                return false;
+            }
+        }
+
+        [HarmonyPatch(typeof(NukeFlash), "crabzilla_bomb_action")]
+        static class NoCrabFromFlash { static bool Prefix() => !Off; }
 
         [HarmonyPatch]
         static class NoNewBuildings

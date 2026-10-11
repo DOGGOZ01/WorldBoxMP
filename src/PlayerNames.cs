@@ -18,6 +18,8 @@ namespace WorldBoxMP
 
         private static string _remoteName = "";
 
+        public static string RemoteName => _remoteName;
+
         private static float _sendTimer;
 
         private static int _sentHash;

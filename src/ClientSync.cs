@@ -42,6 +42,7 @@ namespace WorldBoxMP
         static bool _clockSet;
         static int _flipFailures;
         static float _slowTimer;
+        static bool _loadedThisFrame;
         static QualityChanger _quality;
         static readonly Queue<byte[]> _pending = new Queue<byte[]>();
         static int _failures;
@@ -60,6 +61,9 @@ namespace WorldBoxMP
         public static void Reset()
         {
             _tracks.Clear();
+            PlayerEdits.Reset();
+            PositionSync.ResetClient();
+            SpecialActors.ResetClient();
             OwnUnit.Reset();
             ActionSync.ResetClient();
             _pending.Clear();
@@ -73,28 +77,48 @@ namespace WorldBoxMP
         public static void Update()
         {
             if (SmoothLoader.isLoading()) return;
+            if (_pending.Count > _maxPending) _maxPending = _pending.Count;
             while (_pending.Count > 0)
             {
+                long started = System.Diagnostics.Stopwatch.GetTimestamp();
                 try { Apply(HostSync.Inflate(_pending.Dequeue())); }
                 catch (Exception e)
                 {
                     _failures++;
                     Debug.LogError("[WorldBoxMP] delta failed: " + e);
                 }
+                double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                _applied++;
+                _applyMs += ms;
+                if (ms > _applyMaxMs) _applyMaxMs = ms;
             }
             Glide();
-            ActionSync.UpdateClient(_renderTime, Time.unscaledDeltaTime);
             Turn();
             AnimationHelper.updateTime(Time.deltaTime, Time.deltaTime);
-            EffectSync.UpdateClient();
-            BuildingZonesSystem.update();
+            SoundSync.MuteDepth++;
+            try
+            {
+                Step("shots", () => ActionSync.UpdateClient(_renderTime, Time.unscaledDeltaTime));
+                Step("effects", EffectSync.UpdateClient);
+                Step("drops", DropSync.UpdateClient);
+            }
+            finally { SoundSync.MuteDepth--; }
+            Step("statuses", StatusSync.UpdateClient);
+            Step("specials", SpecialActors.UpdateClient);
+            Step("avatars", AvatarSync.UpdateClient);
+            Step("battles", LiveState.UpdateClient);
+            Step("age", EraSync.UpdateClient);
+            Step("zones", BuildingZonesSystem.update);
             MapBox world = World.world;
             _slowTimer -= Time.unscaledDeltaTime;
             bool slowPass = _slowTimer <= 0f;
-            if (slowPass)
+            if (slowPass || _loadedThisFrame)
             {
-                _slowTimer = 0.25f;
+                if (slowPass) _slowTimer = 0.25f;
+                _loadedThisFrame = false;
                 FixBuildingKingdoms(world);
+                FixActorKingdoms(world);
+                MetaSync.Relink();
             }
             world.checkSimManagerLists();
             world.units.prepareForMetaChecks();
@@ -110,16 +134,25 @@ namespace WorldBoxMP
             UpdateVisibility(slowPass);
         }
 
+        static readonly HashSet<BatchBuildings> _batches = new HashSet<BatchBuildings>();
+
         static void UpdateVisibility(bool buildings)
         {
+            _batches.Clear();
             bool gameplay = MapBox.isRenderGameplay();
             if (_quality == null) _quality = World.world.GetComponent<QualityChanger>();
             bool zoomedOut = _quality.shouldRenderBuildings() && DebugConfig.isOn(DebugOption.ScaleEffectEnabled);
             foreach (Building b in World.world.buildings)
             {
                 if (buildings) Access.BuildingVisible(b) = gameplay ? b.current_tile.zone.visible : zoomedOut;
-                if (Access.TweenActive(Access.ScaleHelper(b))) Access.UpdateScaleTween(b);
+                if (Access.TweenActive(Access.ScaleHelper(b)))
+                {
+                    Access.UpdateScaleTween(b);
+                    if (b.batch != null) _batches.Add(b.batch);
+                }
             }
+
+            foreach (BatchBuildings batch in _batches) batch.actions_to_run.Clear();
 
             foreach (Actor a in World.world.units)
             {
@@ -136,6 +169,8 @@ namespace WorldBoxMP
             MapBox world = World.world;
 
             OnHostTime(r.ReadDouble());
+            PlayerEdits.HostWorld(r.ReadString(), r.ReadBoolean());
+            EraSync.Apply(r.ReadString());
             bool meta = r.ReadBoolean();
             if (meta) MetaSync.Read(r);
 
@@ -146,9 +181,10 @@ namespace WorldBoxMP
                 int id = r.ReadInt32();
                 string main = r.ReadString();
                 string top = r.ReadString();
-                bool fire = r.ReadBoolean();
+                byte flags = r.ReadByte();
+                byte burned = r.ReadByte();
                 if (id < 0 || id >= tiles.Length) continue;
-                ApplyTile(tiles[id], main, top, fire);
+                ApplyTile(tiles[id], main, top, (flags & 1) != 0, (flags & 2) != 0, burned);
             }
 
             int goneBuildings = r.ReadInt32();
@@ -202,6 +238,7 @@ namespace WorldBoxMP
                          (world.buildings.get(bd.id) != null ? " (id still loaded)" : " (cannot build there)"));
             }
             world.buildings.checkContainer();
+            if (newBuildings.Count > 0 || meta) _loadedThisFrame = true;
             foreach (ActorData ad in newActors)
             {
                 Actor a = world.units.loadObject(ad);
@@ -214,27 +251,31 @@ namespace WorldBoxMP
                 List<Sample> track = Track(ad.id);
                 track.Clear();
                 track.Add(new Sample { Time = _packetTime, Pos = a.current_position, Height = a.position_height, Flip = Access.Flip(a), Moving = a.is_moving });
+                if (a.kingdom == null) a.checkDefaultKingdom();
+                PlayerEdits.HostAppliedUnit(a);
                 if (_possessedReloads.TryGetValue(ad.id, out Actor was)) RemotePossession.OnClientActorReplaced(was, a);
             }
             _possessedReloads.Clear();
             world.units.checkContainer();
 
-            int movedCount = r.ReadInt32();
-            for (int i = 0; i < movedCount; i++)
+            InfoSweep.Read(r);
+            SoundSync.MuteDepth++;
+            try
             {
-                long id = r.ReadInt64();
-                var pos = new Vector2(r.ReadSingle(), r.ReadSingle());
-                float height = r.ReadSingle();
-                byte flags = r.ReadByte();
-                Actor a = world.units.get(id);
-                if (a == null) continue;
-                AddSample(a, id, pos, height, (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0);
+                ActionSync.Read(r, _packetTime);
+                EffectSync.Read(r);
+                DropSync.Read(r);
             }
-
-            ActionSync.Read(r, _packetTime);
-            EffectSync.Read(r);
+            finally { SoundSync.MuteDepth--; }
+            SoundSync.Read(r);
+            StatusSync.Read(r);
+            SpecialActors.Read(r);
+            AvatarSync.Read(r);
+            LiveState.Read(r);
             if (meta) MetaSync.FinishApply();
             if (r.ReadBoolean()) Checksum.Compare(r);
+            if (r.ReadBoolean()) MetaSync.CheckLists(r);
+            if (r.ReadBoolean()) ObjectRepair.Read(r);
         }
 
         static int _kingdomFixes;
@@ -254,13 +295,30 @@ namespace WorldBoxMP
             }
         }
 
+        static void FixActorKingdoms(MapBox world)
+        {
+            foreach (Actor a in world.units)
+            {
+                if (!a.isAlive()) continue;
+                if (a.kingdom == null) a.checkDefaultKingdom();
+                if (a.lover != null && world.units.get(a.lover.getID()) != a.lover)
+                {
+                    long id = Access.ActorData(a).lover;
+                    a.lover = id >= 0 ? world.units.get(id) : null;
+                }
+            }
+        }
+
         static void Fail(string what)
         {
             _failures++;
             if (_failures <= 30) Debug.Log("[WorldBoxMP] stream: could not load " + what);
         }
 
-        static void ApplyTile(WorldTile tile, string main, string top, bool fire)
+        static readonly AccessTools.FieldRef<MapBox, BurnedTilesLayer> BurnedLayer =
+            AccessTools.FieldRefAccess<MapBox, BurnedTilesLayer>("burned_layer");
+
+        static void ApplyTile(WorldTile tile, string main, string top, bool fire, bool frozen, byte burned)
         {
             TileType mainType = AssetManager.tiles.get(main);
             if (mainType == null) return;
@@ -271,7 +329,44 @@ namespace WorldBoxMP
                 tile.Height = tile.Type.height_min;
             }
             if (tile.isOnFire() != fire) tile.setFireData(fire);
+            if (tile.data.frozen != frozen)
+            {
+                tile.data.frozen = frozen;
+                tile.updateStats();
+            }
+            if (tile.burned_stages != burned)
+            {
+                tile.burned_stages = burned;
+                BurnedLayer(World.world)?.setTileDirty(tile);
+            }
             World.world.setTileDirty(tile);
+        }
+
+        static readonly Dictionary<string, int> _stepFailures = new Dictionary<string, int>();
+        static int _applied, _maxPending;
+        static double _applyMs, _applyMaxMs;
+
+        public static string StreamReport()
+        {
+            string s = "deltas=" + _applied + " apply_ms_avg=" + (_applied > 0 ? (_applyMs / _applied).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) : "-") +
+                       " apply_ms_max=" + _applyMaxMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " backlog_max=" + _maxPending +
+                       " packet_gap_ms=" + (_gap * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " replay_delay_ms=" + (Delay * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) +
+                       " behind_host_ms=" + (_clockSet ? ((_newestHostTime + (Clock.Now - _newestLocalTime) - _renderTime) * 1000).ToString("0", System.Globalization.CultureInfo.InvariantCulture) : "-");
+            _applied = 0;
+            _maxPending = 0;
+            _applyMs = _applyMaxMs = 0;
+            return s;
+        }
+
+        static void Step(string name, Action step)
+        {
+            try { step(); }
+            catch (Exception e)
+            {
+                _stepFailures.TryGetValue(name, out int n);
+                _stepFailures[name] = ++n;
+                if (n <= 3 || n % 500 == 0) Debug.LogError("[WorldBoxMP] client " + name + " failed (" + n + "x): " + e);
+            }
         }
 
         static List<Sample> Track(long id)
@@ -284,7 +379,9 @@ namespace WorldBoxMP
             return track;
         }
 
-        static void OnHostTime(double hostTime)
+        public static void OnPositionsTime(double hostTime) => OnHostTime(hostTime, false);
+
+        static void OnHostTime(double hostTime, bool isDelta = true)
         {
             double now = Clock.Now;
             if (_newestHostTime >= 0)
@@ -292,7 +389,7 @@ namespace WorldBoxMP
                 double gap = hostTime - _newestHostTime;
                 if (gap > 0 && gap < 0.5) _gap += (gap - _gap) * 0.1;
             }
-            _packetTime = hostTime;
+            if (isDelta) _packetTime = hostTime;
             if (hostTime > _newestHostTime)
             {
                 _newestHostTime = hostTime;
@@ -307,10 +404,10 @@ namespace WorldBoxMP
 
         static double Delay => Math.Max(0.06, Math.Min(0.3, _gap * 2 + 0.02));
 
-        static void AddSample(Actor a, long id, Vector2 pos, float height, bool flip, bool moving, bool underForces)
+        public static void AddSample(Actor a, long id, Vector2 pos, float height, bool flip, bool moving, bool underForces, double time)
         {
             List<Sample> track = Track(id);
-            double time = _packetTime;
+            if (track.Count > 0 && time <= track[track.Count - 1].Time) return;
             OwnUnit.OnHostPosition(a, pos, underForces);
             if (track.Count > 0)
             {

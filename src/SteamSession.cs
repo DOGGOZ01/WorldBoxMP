@@ -38,7 +38,8 @@ namespace WorldBoxMP
             }
             try
             {
-                SteamNetworkingUtils.SendBufferSize = 64 * 1024 * 1024;
+                SteamNetworkingUtils.SendBufferSize = 16 * 1024 * 1024;
+                SteamPeer.SetRateLimits(256 * 1024, 4 * 1024 * 1024);
                 SteamNetworkingUtils.InitRelayNetworkAccess();
             }
             catch (Exception e)
@@ -257,9 +258,101 @@ namespace WorldBoxMP
             _closed = true;
         }
 
+        public int QueuedChunks => _outgoing.Count;
+
+        static object _sockets;
+        static System.Reflection.MethodInfo _quickStatus;
+        static Type _statusType;
+        static System.Reflection.FieldInfo _pendingReliable, _pendingUnreliable, _unacked, _sendRate;
+        static bool _statusBroken;
+        long _pending;
+        int _rate;
+        float _statusAt;
+
+        public static void SetRateLimits(int min, int max)
+        {
+            try
+            {
+                var set = HarmonyLib.AccessTools.Method(typeof(SteamNetworkingUtils), "SetConfigInt");
+                Type config = set.GetParameters()[0].ParameterType;
+                set.Invoke(null, new object[] { Enum.ToObject(config, 10), min });
+                set.Invoke(null, new object[] { Enum.ToObject(config, 11), max });
+                Debug.Log("[WorldBoxMP] Steam send rate " + min / 1024 + "-" + max / 1024 + " KiB/s");
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[WorldBoxMP] could not set Steam send rate: " + e.GetBaseException().Message);
+            }
+        }
+
+        void ReadStatus()
+        {
+            if (_statusBroken || Time.unscaledTime < _statusAt) return;
+            _statusAt = Time.unscaledTime + 0.2f;
+            try
+            {
+                if (_quickStatus == null)
+                {
+                    _sockets = HarmonyLib.AccessTools.Property(typeof(SteamNetworkingSockets), "Internal").GetValue(null, null);
+                    _quickStatus = HarmonyLib.AccessTools.Method(_sockets.GetType(), "GetQuickConnectionStatus");
+                    _statusType = _quickStatus.GetParameters()[1].ParameterType.GetElementType();
+                    _pendingReliable = HarmonyLib.AccessTools.Field(_statusType, "CbPendingReliable");
+                    _pendingUnreliable = HarmonyLib.AccessTools.Field(_statusType, "CbPendingUnreliable");
+                    _unacked = HarmonyLib.AccessTools.Field(_statusType, "CbSentUnackedReliable");
+                    _sendRate = HarmonyLib.AccessTools.Field(_statusType, "SendRateBytesPerSecond");
+                }
+                object status = Activator.CreateInstance(_statusType);
+                HarmonyLib.AccessTools.Field(_statusType, "Reserved")?.SetValue(status, new uint[16]);
+                var args = new object[] { _connection, status };
+                _quickStatus.Invoke(_sockets, args);
+                status = args[1];
+                _pending = (int)_pendingReliable.GetValue(status) + (int)_pendingUnreliable.GetValue(status);
+                _rate = (int)_sendRate.GetValue(status);
+            }
+            catch (Exception e)
+            {
+                _statusBroken = true;
+                Debug.Log("[WorldBoxMP] Steam quick status not available: " + e.GetBaseException().Message);
+            }
+        }
+
+        public override long PendingBytes
+        {
+            get
+            {
+                ReadStatus();
+                long queued = 0;
+                foreach (byte[] chunk in _outgoing) queued += chunk.Length;
+                return _pending + queued;
+            }
+        }
+
+        public override int SendRate
+        {
+            get { ReadStatus(); return _rate; }
+        }
+
+        public override void SendUnreliable(Msg type, byte[] data)
+        {
+            if (_closed || !_connected) return;
+            data = data ?? new byte[0];
+            NetStats.CountOut(data);
+            var frame = new byte[data.Length + 2];
+            frame[0] = 2;
+            frame[1] = (byte)type;
+            Buffer.BlockCopy(data, 0, frame, 2, data.Length);
+            _connection.SendMessage(frame, SendType.Unreliable | SendType.NoNagle);
+        }
+        public string DetailedStatus()
+        {
+            try { return _connected && !_closed ? _connection.DetailedStatus() : null; }
+            catch { return null; }
+        }
+
         public override void Send(Msg type, byte[] data)
         {
             if (_closed) return;
+            NetStats.CountOut(data);
             data = data ?? new byte[0];
             int total = data.Length + 1;
             int offset = 0;
@@ -297,6 +390,14 @@ namespace WorldBoxMP
             if (size < 1) return;
             var buf = new byte[size];
             Marshal.Copy(data, buf, 0, size);
+            if (buf[0] == 2)
+            {
+                if (size < 2) return;
+                var single = new byte[size - 2];
+                Buffer.BlockCopy(buf, 2, single, 0, single.Length);
+                Inbox.Enqueue(new Packet { Type = (Msg)buf[1], Data = single });
+                return;
+            }
             _assembling.Write(buf, 1, size - 1);
             if (buf[0] != 1) return;
             byte[] frame = _assembling.ToArray();

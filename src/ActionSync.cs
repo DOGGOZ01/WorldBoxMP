@@ -86,6 +86,8 @@ namespace WorldBoxMP
             }
         }
 
+        private static readonly AccessTools.FieldRef<Projectile, Kingdom> ProjectileKingdom = AccessTools.FieldRefAccess<Projectile, Kingdom>("kingdom");
+
         private static readonly Dictionary<long, double> _stamps = new Dictionary<long, double>();
 
         private static readonly List<Attack> _hostAttacks = new List<Attack>();
@@ -162,6 +164,7 @@ namespace WorldBoxMP
 
         public static void Write(BinaryWriter bw)
         {
+            if (Flow.Level == 2) _hostAttacks.Clear();
             bw.Write(World.world.getCurWorldTime());
             bw.Write(_hostAttacks.Count);
             foreach (Attack hostAttack in _hostAttacks)
@@ -306,6 +309,8 @@ namespace WorldBoxMP
             }
             if (world.projectiles != null && dt > 0f)
             {
+                foreach (Projectile p in world.projectiles.list)
+                    if (ProjectileKingdom(p) == null) ProjectileKingdom(p) = WildKingdomsManager.neutral;
                 world.projectiles.update(Access.Elapsed(world) * (float)Mathf.Clamp(Config.time_scale_asset?.ticks ?? 1, 1, 8));
             }
         }
@@ -320,7 +325,8 @@ namespace WorldBoxMP
             _spawningCopy = true;
             try
             {
-                Projectile projectile = World.world.projectiles.spawn(actor, null, shot.Asset, shot.Launch, shot.Target, shot.TargetZ, shot.StartZ);
+                Projectile projectile = World.world.projectiles.spawn(actor, null, shot.Asset, shot.Launch, shot.Target, shot.TargetZ, shot.StartZ,
+                    null, actor != null && actor.kingdom != null ? actor.kingdom : WildKingdomsManager.neutral);
                 if (projectile != null && shot.Speed > 0f)
                 {
                     Access.ProjectileSpeed(projectile) = shot.Speed;

@@ -60,6 +60,13 @@ namespace WorldBoxMP
 
         public static bool IsRemote(Actor a) => a != null && _remote.Contains(a);
 
+        public static void FriendInput(out Vector2 movement, out Vector2 mouse, out bool attackLeft)
+        {
+            movement = _remoteInput.Movement;
+            mouse = _remoteInput.Mouse;
+            attackLeft = _remoteInput.Flags[0];
+        }
+
         public static bool HasRemote => _remote.Count > 0 || Clock.Now - _lastRemoteTime < 60.0;
 
         static bool FollowsClient(Actor a) => a != null && _clientMainId >= 0 && a.getID() == _clientMainId;

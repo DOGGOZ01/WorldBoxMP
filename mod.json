@@ -1,7 +1,7 @@
 {
   "name": "WorldBoxMP",
   "author": "DOGGOZ01",
-  "version": "0.6.1",
+  "version": "0.12.0",
   "description": "Two-player online WorldBox. The host runs the world; the second player sees it and uses god powers. F7 host, F8 connect, F9 resync, F6 disconnect.",
   "GUID": "doggoz01.worldboxmp"
 }

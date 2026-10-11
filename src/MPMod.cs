@@ -46,9 +46,15 @@ namespace WorldBoxMP
                 PumpNetwork();
                 if (Net.Role == Role.Host) HostUpdate();
                 if (Net.IsClientConnected) ClientUpdate();
+                NetStats.Update();
                 PlayerNames.Update();
+                RemoteCursor.Update();
                 PlayerLook.Update();
-                if (WorldfallBridge.Present) WorldfallBridge.PatchSteering(Harmony);
+                if (WorldfallBridge.Present)
+                {
+                    WorldfallBridge.PatchSteering(Harmony);
+                    SoundSync.PatchWorldfall(Harmony);
+                }
             }
             catch (Exception e)
             {
@@ -64,6 +70,7 @@ namespace WorldBoxMP
             try
             {
                 PlayerNames.Draw();
+                RemoteCursor.Draw();
             }
             catch (Exception e)
             {
@@ -199,10 +206,12 @@ namespace WorldBoxMP
             }
             ClientSync.Update();
             RemotePossession.ClientUpdate();
-            if (Checksum.Consecutive >= 3 && !_askedResync)
+            PlayerEdits.UpdateClient();
+            ViewSync.UpdateClient();
+            if (Checksum.Consecutive >= 15 && !_askedResync)
             {
                 _askedResync = true;
-                Debug.Log("[WorldBoxMP] world differs from the host 3 checks in a row, asking for the whole world");
+                Debug.Log("[WorldBoxMP] world differs from the host 15 checks in a row, asking for the whole world");
                 Net.Peer.Send(Msg.Resync, null);
             }
             if (ClientSync.Failures > 20 && !_askedResync)
@@ -218,6 +227,8 @@ namespace WorldBoxMP
             if (Net.Role == Role.Host && Net.TakeAccepted() is Peer joined)
             {
                 Tip("Второй игрок подключился: " + joined.Remote);
+                ViewSync.Reset();
+                Flow.Reset();
                 _resyncTimer = 0f;
             }
 
@@ -227,6 +238,7 @@ namespace WorldBoxMP
 
             for (int i = 0; i < 64 && peer.Inbox.TryDequeue(out var pkt); i++)
             {
+                NetStats.CountIn(pkt);
                 if (TestHarness.LagMs > 0) _lagged.Enqueue(new KeyValuePair<double, Packet>(Clock.Now + TestHarness.LagMs / 1000.0, pkt));
                 else Handle(pkt);
             }
@@ -240,7 +252,8 @@ namespace WorldBoxMP
                     _hasWorld = false;
                     Net.Stop();
                     SessionLog.Stop();
-                    Tip("Связь с хостом потеряна. Мир остался как был; загрузите сохранение, чтобы играть дальше.");
+                    Tip("Связь с хостом потеряна. Это копия мира хоста, она стоит на паузе: загрузите своё сохранение или создайте новый мир, чтобы играть дальше.");
+                    TestHarness.OnClientDropped();
                 }
                 else if (Net.Role == Role.Host)
                 {
@@ -297,6 +310,42 @@ namespace WorldBoxMP
                 case Msg.Look:
                     PlayerLook.Receive(pkt.Data);
                     break;
+                case Msg.Pos when Net.Role == Role.Client:
+                    PositionSync.Receive(pkt.Data);
+                    break;
+                case Msg.View when Net.Role == Role.Host:
+                    ViewSync.Receive(pkt.Data);
+                    break;
+                case Msg.BucketCheck when Net.Role == Role.Host:
+                    ObjectRepair.HostRequestBuckets(pkt.Data);
+                    break;
+                case Msg.BucketList when Net.Role == Role.Host:
+                    ObjectRepair.HostRequestItems(pkt.Data);
+                    break;
+                case Msg.ObjRepair when Net.Role == Role.Host:
+                    ObjectRepair.HostResend(pkt.Data);
+                    break;
+                case Msg.Order when Net.Role == Role.Host:
+                    Orders.HostReceive(pkt.Data);
+                    break;
+                case Msg.Cursor:
+                    RemoteCursor.Receive(pkt.Data);
+                    break;
+                case Msg.Edit when Net.Role == Role.Host:
+                    PlayerEdits.HostReceive(pkt.Data);
+                    break;
+                case Msg.Ping:
+                    NetStats.OnPing(pkt.Data);
+                    break;
+                case Msg.Pong:
+                    NetStats.OnPong(pkt.Data);
+                    break;
+                case Msg.MetaCheck when Net.Role == Role.Host:
+                    MetaSync.RequestLists(pkt.Data);
+                    break;
+                case Msg.MetaRepair when Net.Role == Role.Host:
+                    MetaSync.Repair(pkt.Data);
+                    break;
                 default:
                     Debug.Log("[WorldBoxMP] ignored " + pkt.Type + " as " + Net.Role);
                     break;
@@ -307,6 +356,7 @@ namespace WorldBoxMP
         {
             _resyncTimer = 0f;
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            foreach (Actor a in World.world.units) a.getName();
             byte[] bytes = SaveManager.currentWorldToSavedMap().toZip();
             Net.Peer.Send(Msg.World, bytes);
             HostSync.ResetAfterSnapshot();
@@ -322,6 +372,7 @@ namespace WorldBoxMP
                 _restoreCamera = true;
             }
             _hasWorld = true;
+            Net.MirrorWorld = true;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             ClientSync.Reset();
             SaveManager.loadMapFromBytes(bytes);
