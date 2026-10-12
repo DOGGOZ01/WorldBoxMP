@@ -88,7 +88,7 @@ namespace WorldBoxMP
                     Lobby? created = await SteamMatchmaking.CreateLobbyAsync(2);
                     if (!created.HasValue)
                     {
-                        MPMod.Tip("Не удалось создать лобби Steam; друг может подключиться по IP");
+                        MPMod.Tip("tip_lobby_failed");
                         return;
                     }
                     Lobby lobby = created.Value;
@@ -99,12 +99,12 @@ namespace WorldBoxMP
                     Debug.Log("[WorldBoxMP] Steam lobby " + lobby.Id.Value + " created by " + SteamClient.SteamId.Value);
                 }
                 SteamFriends.OpenGameInviteOverlay(_lobby.Value.Id);
-                MPMod.Tip("Лобби Steam открыто: пригласите друга в окне Steam");
+                MPMod.Tip("tip_invite_open");
             }
             catch (Exception e)
             {
                 Debug.LogError("[WorldBoxMP] steam host: " + e);
-                MPMod.Tip("Ошибка Steam при создании игры: " + e.Message);
+                MPMod.Tip("tip_steam_error", e.Message);
             }
         }
 
@@ -119,18 +119,19 @@ namespace WorldBoxMP
                 RoomEnter entered = await lobby.Join();
                 if (entered != RoomEnter.Success)
                 {
-                    MPMod.Tip("Не удалось войти в лобби Steam (" + entered + ")");
+                    Debug.Log("[WorldBoxMP] steam lobby: " + entered);
+                    MPMod.Tip("tip_lobby_join_failed");
                     return;
                 }
                 _lobby = lobby;
                 string theirs = lobby.GetData("wbmp_protocol");
                 if (theirs != Net.ProtocolVersion.ToString())
-                    MPMod.Tip("У хоста другая версия WorldBoxMP (" + theirs + ", у вас " + Net.ProtocolVersion + ")");
+                    MPMod.Tip("tip_version", theirs, Net.ProtocolVersion);
 
                 Friend owner = lobby.Owner;
                 if (owner.Id == SteamClient.SteamId)
                 {
-                    MPMod.Tip("Это ваше собственное лобби: две игры на одном аккаунте Steam не соединяются. Для проверки на одном ПК используйте IP");
+                    MPMod.Tip("tip_own_lobby");
                     return;
                 }
                 _connection = SteamNetworkingSockets.ConnectRelay<ClientConnection>(owner.Id, 0);
@@ -138,12 +139,12 @@ namespace WorldBoxMP
                 _connection.Peer = peer;
                 Net.ConnectWith(peer);
                 peer.Send(Msg.Hello, BitConverter.GetBytes(Net.ProtocolVersion));
-                MPMod.Tip("Подключаемся к " + owner.Name + " через Steam...");
+                MPMod.Tip("tip_joining_steam", owner.Name);
             }
             catch (Exception e)
             {
                 Debug.LogError("[WorldBoxMP] steam join: " + e);
-                MPMod.Tip("Ошибка Steam при подключении: " + e.Message);
+                MPMod.Tip("tip_steam_error", e.Message);
             }
         }
 
@@ -153,7 +154,7 @@ namespace WorldBoxMP
         {
             if (!Available)
             {
-                MPMod.Tip("Steam недоступен — используйте подключение по IP");
+                MPMod.Tip("tip_no_steam");
                 return;
             }
             if (Net.Role != Role.Host || !_lobby.HasValue)

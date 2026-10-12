@@ -62,7 +62,7 @@ namespace WorldBoxMP
             return cfg;
         }
 
-        void Save(string path)
+        internal void Save(string path)
         {
             File.WriteAllText(path,
                 "# WorldBoxMP settings\n" +

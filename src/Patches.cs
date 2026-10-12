@@ -45,6 +45,8 @@ namespace WorldBoxMP
             if (!Net.IsClientConnected) return true;
             if (pPower == null) pPower = World.world.selected_power;
             if (pPower == null) return false;
+            Perm need = Rules.Of(pPower);
+            if (!Rules.ClientMayPower(pPower)) { Rules.Refuse(need); return false; }
             Powers.SendClick(pPos, pPower);
             return false;
         }

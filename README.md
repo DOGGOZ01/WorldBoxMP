@@ -27,10 +27,26 @@ uses god powers in it. Built on [NeoModLoader](https://github.com/WorldBoxOpenMo
 3. Start WorldBox once; `Mods/WorldBoxMP/WorldBoxMP.cfg` is created.
 
 ## Play
-### The "Мультиплеер" tab
-A tab in the bottom power bar (the last one) has every action as a button — Создать игру, Пригласить друга,
-Подключиться по IP, Синхронизировать мир, Отключиться — and a status line (who is connected, stream KiB/s,
-world checks). The hotkeys below do the same.
+### The Multiplayer tab and menu
+A tab in the bottom power bar (the last one, two little players) has the menu, Invite friend, Disconnect and a
+status line (who you play with, ping). The menu shows only what fits the moment: Host game and Join by IP (the
+address is typed right there) when not connected; Invite friend, Reload world and Stop hosting for the host;
+Reload world and Disconnect for the second player; the logs folder in the corner. The interface follows the
+game's language (all 38 WorldBox languages, `lang/strings.py`). The hotkeys below do the same.
+
+### What the second player may do
+The host's menu has "Second player can": ten switches (terrain, creatures, nature, destruction, other powers,
+kingdom relations, renaming and editing, unit orders, unit control, speed and pause), all on when the game
+starts, changeable any time. The second player's tabs and buttons for what is off turn grey, and the host checks
+every request itself, so a client that gets around its interface still changes nothing. A unit one player controls
+directly takes no orders and no possession from the other; selecting it and editing its name, traits and items
+stays open to both. Items from the equipment editor are made by the host.
+
+A gear next to each tab's switch opens its powers: every power's own icon, click to allow or deny it, allow all,
+deny all, and a filter (all / allowed / denied). World laws and world ages are the host's only: greyed on the
+second player's side with "only the host" in the tooltip, and their windows never open there. "Unlock everything"
+(host) counts every trait, item, creature, gene and plot as discovered in this world for both players; it is a
+flag in the world's save (MapStats.custom_data), the players' own progress stays as it is.
 
 ### With a Steam friend (no IP, no port forwarding)
 1. The host presses **F7**: a friends-only Steam lobby opens together with Steam's invite window. Invite the friend.
@@ -49,7 +65,7 @@ The second player must be able to reach the host's port: same LAN, a port forwar
 router, or a virtual LAN (Radmin VPN, ZeroTier, Hamachi) with the host's VPN address as `host_ip`.
 
 ## Session logs
-Both players get a log per session in `Mods/WorldBoxMP/logs` (the "Логи" button in the tab opens the folder):
+Both players get a log per session in `Mods/WorldBoxMP/logs` (the scroll button in the menu opens the folder):
 every WorldBoxMP line and game error, a COUNTERS line every 10 s (what was sent or applied, stream KiB/s per
 section, host ms per section), and every 10 s a STATE dump with the same number on both sides (counts, every
 kingdom and city with name, colour, king, capital, leader and zones, unit info sums, statuses).

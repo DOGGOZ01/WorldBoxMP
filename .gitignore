@@ -1,5 +1,35 @@
+# Build output
 bin/
 obj/
-*.user
-.vs/
+*.dll
+*.pdb
+*.exe
+
+# Release archives
 dist/
+*.zip
+
+# Logs, screenshots, game configs
+logs/
+*.log
+*.png
+WorldBoxMP.cfg
+
+# Dev tools and journal (not part of the mod)
+tools/
+MODLOG.md
+*.py
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+!lang/*.py
+!art/*.py

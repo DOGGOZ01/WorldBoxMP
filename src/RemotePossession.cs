@@ -161,20 +161,28 @@ namespace WorldBoxMP
             finally { _suppressSend = false; }
         }
 
+        public static bool HostControls(Actor a) => a != null && Units().Contains(a);
+
         public static void HostReceivePossess(byte[] data)
         {
             var r = new BinaryReader(new MemoryStream(data));
             int n = r.ReadInt32();
             var names = new List<string>();
+            var refused = new List<long>();
+            bool busy = false;
             for (int i = 0; i < n; i++)
             {
-                Actor a = World.world.units.get(r.ReadInt64());
+                long id = r.ReadInt64();
+                Actor a = World.world.units.get(id);
                 if (a == null || !a.isAlive() || !a.canBePossessed()) continue;
+                if (!SpecialActors.IsSpecial(a) && !Rules.HostAllows(Perm.Possess)) { refused.Add(id); continue; }
+                if (HostControls(a)) { refused.Add(id); busy = true; continue; }
                 _remote.Add(a);
                 AddPossessedStatus(a);
                 names.Add(a.getID() + " " + a.asset.id);
             }
-            SessionLog.Write("friend possessed: " + string.Join(", ", names));
+            if (names.Count > 0) SessionLog.Write("friend possessed: " + string.Join(", ", names));
+            if (refused.Count > 0) Rules.Deny(Perm.Possess, busy ? "tip_unit_busy" : "tip_denied", refused);
         }
 
         public static void HostReceiveUnpossess()
@@ -194,6 +202,7 @@ namespace WorldBoxMP
 
         public static void HostReceiveInput(byte[] data)
         {
+            if (_remote.Count == 0 && !Rules.HostAllows(Perm.Possess)) return;
             var r = new BinaryReader(new MemoryStream(data));
             _remoteInput.Movement = new Vector2(r.ReadSingle(), r.ReadSingle());
             _remoteInput.Click = new Vector2(r.ReadSingle(), r.ReadSingle());

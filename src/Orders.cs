@@ -13,6 +13,8 @@ namespace WorldBoxMP
 
         public static int Sent, Applied;
 
+        public static bool Replaying;
+
         static readonly AccessTools.FieldRef<PlayerControl, Vector2> SquareStart =
             AccessTools.FieldRefAccess<PlayerControl, Vector2>("square_selection_position_current");
 
@@ -63,9 +65,14 @@ namespace WorldBoxMP
                 if (tile == null) return;
                 bool attack = HotkeyLibrary.isHoldingControlForSelection();
                 Actor target = attack ? World.world.getActorNearCursor() : null;
+                if (!Rules.ClientMay(Perm.Orders)) { Rules.Refuse(Perm.Orders); return; }
                 var units = new List<Actor>(SelectedUnit.getAllSelected());
                 units.Remove(SelectedUnit.unit);
                 units.Insert(0, SelectedUnit.unit);
+                int before = units.Count;
+                units.RemoveAll(a => a == null || PlayerNames.OtherControls(a.getID()) || ControllableUnit.isControllingUnit(a));
+                if (units.Count < before) Rules.Busy();
+                if (units.Count == 0) return;
                 Send(tile, attack, target, units);
             }
         }
@@ -93,12 +100,17 @@ namespace WorldBoxMP
             bool attack = r.ReadBoolean();
             long targetId = r.ReadInt64();
             int n = r.ReadInt32();
+            if (!Rules.HostAllows(Perm.Orders)) { Rules.Deny(Perm.Orders, "tip_denied"); return; }
             var units = new List<Actor>();
+            int busy = 0;
             for (int i = 0; i < n; i++)
             {
                 Actor a = World.world.units.get(r.ReadInt64());
-                if (a != null && a.isAlive()) units.Add(a);
+                if (a == null || !a.isAlive()) continue;
+                if (ControllableUnit.isControllingUnit(a)) { busy++; continue; }
+                units.Add(a);
             }
+            if (busy > 0) Rules.Deny(Perm.Orders, "tip_unit_busy");
             WorldTile[] tiles = Access.TilesList(World.world);
             if (tileId < 0 || tileId >= tiles.Length || units.Count == 0) return;
             WorldTile tile = tiles[tileId];
@@ -106,6 +118,9 @@ namespace WorldBoxMP
             if (target != null && !target.isAlive()) target = null;
             PlayerControl pc = World.world.player_control;
             int moved = 0;
+            Replaying = true;
+            try
+            {
             foreach (Actor a in units)
             {
                 bool next = false;
@@ -119,6 +134,8 @@ namespace WorldBoxMP
                 else next = MoveOne(pc, a, tile, true);
                 if (next) { moved++; tile = tile.getNeighbourTileSameIsland(); }
             }
+            }
+            finally { Replaying = false; }
             Applied++;
             SessionLog.Write("order from the second player: " + units.Count + " unit(s) " + (attack && target != null ? "attack " + target.getID() : "go, " + moved + " moving") + " to " + tiles[tileId].x + ":" + tiles[tileId].y);
         }

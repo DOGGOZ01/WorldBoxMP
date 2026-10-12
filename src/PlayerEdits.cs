@@ -166,6 +166,12 @@ namespace WorldBoxMP
             Actor main = SelectedUnit.unit;
             if (main != null && main.isAlive() && seen.Add(main)) count += Compare(w, Units, main.getID(), ReadUnit(main), UnitFields);
             bool pressed = ForceInteractive || Time.unscaledTime - _lastInput < 0.5f;
+            if (pressed && !Rules.ClientMay(Perm.Speed))
+            {
+                string[] now = ReadWorld();
+                if (_baseline.TryGetValue(Key(World_, 0), out string[] host) && (now[0] != host[0] || now[1] != host[1])) Rules.Refuse(Perm.Speed);
+                pressed = false;
+            }
             count += Compare(w, World_, 0, ReadWorld(), WorldFields, pressed);
             Send(w, count);
         }
@@ -182,7 +188,9 @@ namespace WorldBoxMP
             for (int i = 0; i < now.Length; i++)
             {
                 if (now[i] == was[i]) continue;
-                if (kind == World_ ? !always : !always && !Interactive && fields[i] != "favorite")
+                bool allowed = kind == World_ || fields[i] == "favorite" || Rules.ClientMay(Perm.Edit);
+                if (!allowed && Interactive) Rules.Refuse(Perm.Edit);
+                if (!allowed || (kind == World_ ? !always : !always && !Interactive && fields[i] != "favorite"))
                 {
                     now[i] = was[i];
                     continue;
@@ -208,6 +216,19 @@ namespace WorldBoxMP
             return 1;
         }
 
+        public static void SendUnitField(long id, string field, string value)
+        {
+            var w = new BinaryWriter(new MemoryStream());
+            w.Write(Units);
+            w.Write(id);
+            w.Write((byte)1);
+            w.Write(field);
+            w.Write(value);
+            Send(w, 1);
+            Sent++;
+            SessionLog.Write("edit sent: units " + id + " " + field + " '" + value + "'");
+        }
+
         static void Send(BinaryWriter w, int count)
         {
             if (count == 0) return;
@@ -229,6 +250,16 @@ namespace WorldBoxMP
                 int n = r.ReadByte();
                 var fields = new List<KeyValuePair<string, string>>();
                 for (int i = 0; i < n; i++) fields.Add(new KeyValuePair<string, string>(r.ReadString(), r.ReadString()));
+                Perm need = kind == World_ ? Perm.Speed : Perm.Edit;
+                int before = fields.Count;
+                if (!Rules.HostAllows(need)) fields.RemoveAll(f => f.Key != "favorite");
+                if (fields.Count < before)
+                {
+                    Rules.Deny(need, "tip_denied");
+                    if (kind == Units) { if (World.world.units.get(id) != null) HostSync.Reload(id); }
+                    else if (kind != World_) MetaSync.ForceResend(kind, id);
+                }
+                if (fields.Count == 0) continue;
                 try
                 {
                     if (kind == Units) ApplyUnit(id, fields);
@@ -272,6 +303,25 @@ namespace WorldBoxMP
                         break;
                     case "favorite":
                         if (a.isFavorite() != (f.Value == "1")) a.switchFavorite();
+                        break;
+                    case "item+":
+                        EquipmentAsset item = AssetManager.items.get(f.Value);
+                        if (item != null && item.show_in_meta_editor && a.asset.canEditItem(item))
+                        {
+                            Item made = World.world.items.generateItem(item, a.kingdom, Access.MapStats(World.world)?.player_name, 1, a, 0, pByPlayer: true);
+                            made.addMod("divine_rune");
+                            a.equipment.setItem(made, a);
+                            a.setStatsDirty();
+                            reload = true;
+                        }
+                        break;
+                    case "item-":
+                        if (Enum.TryParse(f.Value, out EquipmentType slot))
+                        {
+                            a.equipment.getSlot(slot).takeAwayItem();
+                            a.setStatsDirty();
+                            reload = true;
+                        }
                         break;
                     case "traits":
                         var want = new HashSet<string>(f.Value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries));

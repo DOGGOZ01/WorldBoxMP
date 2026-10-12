@@ -51,6 +51,8 @@ namespace WorldBoxMP
             AccessTools.FieldRefAccess<MapBox, WorldTile[]>("tiles_list");
         static readonly Action<ActorManager, Actor> ScheduleActorDestroy =
             AccessTools.MethodDelegate<Action<ActorManager, Actor>>(AccessTools.Method(typeof(ActorManager), "scheduleDestroyOnPlay"));
+        static readonly Dictionary<long, Actor> _replacedOld = new Dictionary<long, Actor>();
+        static readonly Dictionary<Actor, Actor> _replaced = new Dictionary<Actor, Actor>();
         static readonly Action<Building> RemoveBuildingFinal =
             AccessTools.MethodDelegate<Action<Building>>(AccessTools.Method(typeof(Building), "removeBuildingFinal"));
         static readonly Action<MapBox> CheckObjectsToDestroy =
@@ -108,6 +110,7 @@ namespace WorldBoxMP
             Step("avatars", AvatarSync.UpdateClient);
             Step("battles", LiveState.UpdateClient);
             Step("age", EraSync.UpdateClient);
+            Step("windows", Replacements.DropStuckWindowAnimations);
             Step("zones", BuildingZonesSystem.update);
             MapBox world = World.world;
             _slowTimer -= Time.unscaledDeltaTime;
@@ -171,6 +174,7 @@ namespace WorldBoxMP
             OnHostTime(r.ReadDouble());
             PlayerEdits.HostWorld(r.ReadString(), r.ReadBoolean());
             EraSync.Apply(r.ReadString());
+            WorldfallBridge.SetDayClock(r.ReadDouble());
             bool meta = r.ReadBoolean();
             if (meta) MetaSync.Read(r);
 
@@ -216,6 +220,7 @@ namespace WorldBoxMP
                 _tracks.Remove(id);
             }
             var newActors = new List<ActorData>();
+            _replaced.Clear();
             int newActorCount = r.ReadInt32();
             for (int i = 0; i < newActorCount; i++)
             {
@@ -224,6 +229,7 @@ namespace WorldBoxMP
                 if (old != null)
                 {
                     if (ControllableUnit.isControllingUnit(old)) _possessedReloads[ad.id] = old;
+                    _replacedOld[ad.id] = old;
                     ScheduleActorDestroy(world.units, old);
                 }
                 newActors.Add(ad);
@@ -254,8 +260,11 @@ namespace WorldBoxMP
                 if (a.kingdom == null) a.checkDefaultKingdom();
                 PlayerEdits.HostAppliedUnit(a);
                 if (_possessedReloads.TryGetValue(ad.id, out Actor was)) RemotePossession.OnClientActorReplaced(was, a);
+                if (_replacedOld.TryGetValue(ad.id, out Actor old)) _replaced[old] = a;
             }
             _possessedReloads.Clear();
+            _replacedOld.Clear();
+            Replacements.Actors(_replaced);
             world.units.checkContainer();
 
             InfoSweep.Read(r);

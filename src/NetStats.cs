@@ -47,6 +47,8 @@ namespace WorldBoxMP
 
         public static void OnPing(byte[] data) => Net.Peer?.Send(Msg.Pong, data);
 
+        public static int LastPingMs => (int)Math.Round(_rttLast);
+
         public static void OnPong(byte[] data)
         {
             if (data == null || data.Length < 8) return;

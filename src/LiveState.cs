@@ -186,10 +186,11 @@ namespace WorldBoxMP
                 string json = r.ReadString();
                 try
                 {
-                    WorldLogMessage m = Json.Read<WorldLogMessage>(json);
+                    WorldLogMessage m = ReadLog(json);
                     _replayingLog = true;
                     m.add();
                     Applied++;
+                    SessionLog.Write("world log: " + m.asset_id + " " + m.special1 + (m.x.HasValue ? " at " + m.x + ":" + m.y : ""));
                 }
                 catch (Exception e)
                 {
@@ -292,13 +293,40 @@ namespace WorldBoxMP
             }
         }
 
+        static string WriteLog(WorldLogMessage m)
+        {
+            var o = new Newtonsoft.Json.Linq.JObject
+            {
+                ["a"] = m.asset_id, ["t"] = m.timestamp,
+                ["s1"] = m.special1, ["s2"] = m.special2, ["s3"] = m.special3,
+                ["c1"] = m.color_special_1, ["c2"] = m.color_special_2, ["c3"] = m.color_special_3,
+                ["u"] = m.unit_id, ["k"] = m.kingdom_id, ["x"] = m.x, ["y"] = m.y
+            };
+            return o.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        static WorldLogMessage ReadLog(string json)
+        {
+            var o = Newtonsoft.Json.Linq.JObject.Parse(json);
+            var m = new WorldLogMessage();
+            m.asset_id = (string)o["a"];
+            m.timestamp = (int)o["t"];
+            m.special1 = (string)o["s1"]; m.special2 = (string)o["s2"]; m.special3 = (string)o["s3"];
+            m.color_special_1 = (string)o["c1"]; m.color_special_2 = (string)o["c2"]; m.color_special_3 = (string)o["c3"];
+            m.unit_id = (long)o["u"];
+            m.kingdom_id = (long)o["k"];
+            m.x = (int?)o["x"];
+            m.y = (int?)o["y"];
+            return m;
+        }
+
         [HarmonyPatch(typeof(WorldLogMessageExtensions), nameof(WorldLogMessageExtensions.add))]
         static class CaptureLog
         {
             static void Prefix(WorldLogMessage pMessage)
             {
                 if (!Recording || _replayingLog || pMessage == null || _log.Count >= 50) return;
-                try { _log.Add(Json.Write(pMessage)); }
+                try { _log.Add(WriteLog(pMessage)); }
                 catch (Exception e) { Debug.Log("[WorldBoxMP] world log capture: " + e.GetBaseException().Message); }
             }
         }

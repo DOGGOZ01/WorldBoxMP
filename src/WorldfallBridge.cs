@@ -27,6 +27,8 @@ namespace WorldBoxMP
         private static FieldInfo _aimPoint;
 
         private static object _mod;
+        private static FieldInfo _day, _timeOfDay, _days;
+        private static bool _dayLogged;
 
         private static Dictionary<Actor, Vector2> _lookTable;
 
@@ -65,6 +67,13 @@ namespace WorldBoxMP
                 _hooksActive = AccessTools.Field(type2, "Active");
                 _yaw = AccessTools.Field(type2, "Yaw");
                 _aimPoint = AccessTools.Field(type2, "AimPoint");
+                _day = AccessTools.Field(type, "_day");
+                Type dayType = AccessTools.TypeByName("FirstPerson.DayCycle");
+                if (dayType != null)
+                {
+                    _timeOfDay = AccessTools.Field(dayType, "TimeOfDay");
+                    _days = AccessTools.Field(dayType, "_days");
+                }
                 if (_instance == null || _active == null || _hooksActive == null || _yaw == null)
                 {
                     _broken = true;
@@ -75,6 +84,55 @@ namespace WorldBoxMP
             {
                 _broken = true;
                 Debug.Log("[WorldBoxMP] Worldfall bridge off: " + ex.GetBaseException().Message);
+            }
+        }
+
+        static object DayCycle()
+        {
+            if (!Present || _day == null || _timeOfDay == null || _days == null) return null;
+            try
+            {
+                object mod = _instance.GetValue(null, null);
+                return mod != null ? _day.GetValue(mod) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static double DayClock
+        {
+            get
+            {
+                object day = DayCycle();
+                if (day == null) return -1.0;
+                try { return (int)_days.GetValue(day) + (double)(float)_timeOfDay.GetValue(day); }
+                catch { return -1.0; }
+            }
+        }
+
+        public static void SetDayClock(double clock)
+        {
+            if (clock < 0.0) return;
+            object day = DayCycle();
+            if (day == null) return;
+            try
+            {
+                int days = (int)Math.Floor(clock);
+                float time = (float)(clock - days);
+                if (!_dayLogged)
+                {
+                    _dayLogged = true;
+                    SessionLog.Write("Worldfall time of day follows the host: " + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) +
+                                     " (was " + ((float)_timeOfDay.GetValue(day)).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ")");
+                }
+                _days.SetValue(day, days);
+                _timeOfDay.SetValue(day, time);
+            }
+            catch (Exception e)
+            {
+                Debug.Log("[WorldBoxMP] Worldfall day clock: " + e.GetBaseException().Message);
             }
         }
 

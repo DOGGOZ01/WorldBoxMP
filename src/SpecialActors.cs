@@ -183,8 +183,9 @@ namespace WorldBoxMP
             else
             {
                 a.current_position = pos;
-                if (a.avatar != null) a.avatar.transform.position = new Vector3(pos.x, pos.y, a.avatar.transform.position.z);
             }
+            WorldTile tile = World.world.GetTile((int)pos.x, (int)pos.y);
+            if (tile != null) a.current_tile = tile;
             Access.DirtyTile(a) = true;
         }
 

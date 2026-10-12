@@ -40,6 +40,8 @@ namespace WorldBoxMP
                 SteamSession.Update();
                 MPTab.TryCreate();
                 MPTab.Update();
+                Rules.Update();
+                HostOnly.Update();
                 SessionLog.Update();
                 HandleHotkeys();
                 TestHarness.Update(this);
@@ -111,44 +113,28 @@ namespace WorldBoxMP
             if (Net.IsClientConnected)
             {
                 Net.Peer.Send(Msg.Resync, null);
-                Tip("Запрошен мир у хоста...");
+                Tip("tip_world_requested");
             }
             else if (Net.IsHostWithPeer)
             {
                 SendWorld();
-                Tip("Мир отправлен второму игроку");
+                Tip("tip_world_sent");
             }
-            else Tip("Нет подключения");
+            else Tip("tip_not_connected");
         }
 
         public void StopSession()
         {
             if (Net.Role == Role.None)
             {
-                Tip("Игра вдвоём не запущена");
+                Tip("tip_not_connected");
                 return;
             }
             _hasWorld = false;
             Net.Stop();
-            Tip("Игра вдвоём завершена");
+            Rules.ResetClient();
+            Tip("tip_ended");
             SessionLog.Stop();
-        }
-
-        public static string StatusText()
-        {
-            switch (Net.Role)
-            {
-                case Role.Host when Net.IsHostWithPeer:
-                    return "Вы хост. Играет: " + Net.Peer.Remote + "\nПоток: " + HostSync.LastKiBps + " КБ/с";
-                case Role.Host:
-                    return "Вы хост. Ждём второго игрока..." + (SteamSession.LobbyOpen ? "\nЛобби Steam открыто" : "");
-                case Role.Client when Net.IsClientConnected:
-                    return "Подключено к " + Net.Peer.Remote + "\nСверка мира: " + Checksum.Matches + " ок, расхождений " + Checksum.Mismatches;
-                case Role.Client:
-                    return "Подключение...";
-                default:
-                    return "Не подключено.\nF7 — создать игру, F8 — подключиться по IP";
-            }
         }
 
         public void Host()
@@ -158,12 +144,13 @@ namespace WorldBoxMP
             try
             {
                 Net.StartHost(Cfg.Port);
-                Tip("Игра создана (порт " + Cfg.Port + "). Ждём второго игрока...");
+                Tip("tip_hosting");
             }
             catch (Exception e)
             {
                 Net.BecomeHost();
-                Tip("Порт для IP не открылся (" + e.GetBaseException().Message + "), но приглашение через Steam работает");
+                Debug.Log("[WorldBoxMP] port " + Cfg.Port + ": " + e.GetBaseException().Message);
+                Tip("tip_port_busy", Cfg.Port);
             }
             SteamSession.Host();
         }
@@ -176,13 +163,14 @@ namespace WorldBoxMP
                 SessionLog.Start("client");
                 Net.Connect(Cfg.HostIp, Cfg.Port);
                 Net.Peer.Send(Msg.Hello, BitConverter.GetBytes(Net.ProtocolVersion));
-                Tip("Подключено к " + Cfg.HostIp + ". Загружаем мир хоста...");
+                Tip("tip_connecting", Cfg.HostIp);
                 return true;
             }
             catch (Exception e)
             {
                 Net.Stop();
-                Tip("Не удалось подключиться к " + Cfg.HostIp + ":" + Cfg.Port + " (" + e.GetBaseException().Message + ")");
+                Debug.Log("[WorldBoxMP] connect " + Cfg.HostIp + ":" + Cfg.Port + ": " + e.GetBaseException().Message);
+                Tip("tip_connect_failed", Cfg.HostIp + ":" + Cfg.Port);
                 return false;
             }
         }
@@ -226,7 +214,8 @@ namespace WorldBoxMP
         {
             if (Net.Role == Role.Host && Net.TakeAccepted() is Peer joined)
             {
-                Tip("Второй игрок подключился: " + joined.Remote);
+                Tip("tip_joined", joined.Remote);
+                HostOnly.ResendLaws();
                 ViewSync.Reset();
                 Flow.Reset();
                 _resyncTimer = 0f;
@@ -251,15 +240,16 @@ namespace WorldBoxMP
                 {
                     _hasWorld = false;
                     Net.Stop();
+                    Rules.ResetClient();
                     SessionLog.Stop();
-                    Tip("Связь с хостом потеряна. Это копия мира хоста, она стоит на паузе: загрузите своё сохранение или создайте новый мир, чтобы играть дальше.");
+                    Tip("tip_host_left");
                     TestHarness.OnClientDropped();
                 }
                 else if (Net.Role == Role.Host)
                 {
                     RemotePossession.HostReceiveUnpossess();
                     Net.DropPeer();
-                    Tip("Второй игрок вышел. Игра по-прежнему открыта.");
+                    Tip("tip_player_left");
                 }
                 return;
             }
@@ -278,8 +268,21 @@ namespace WorldBoxMP
                 case Msg.Hello when Net.Role == Role.Host:
                     int version = pkt.Data.Length >= 4 ? BitConverter.ToInt32(pkt.Data, 0) : -1;
                     if (version != Net.ProtocolVersion)
-                        Tip("У второго игрока другая версия WorldBoxMP (" + version + ", у вас " + Net.ProtocolVersion + ")");
+                        Tip("tip_version", version, Net.ProtocolVersion);
+                    Rules.Send();
                     SendWorld();
+                    break;
+                case Msg.Rules when Net.Role == Role.Client:
+                    Rules.Receive(pkt.Data);
+                    break;
+                case Msg.Denied when Net.Role == Role.Client:
+                    Rules.ReceiveDenied(pkt.Data);
+                    break;
+                case Msg.Laws when Net.Role == Role.Client:
+                    HostOnly.ClientReceiveLaws(pkt.Data);
+                    break;
+                case Msg.Unlock when Net.Role == Role.Client:
+                    HostOnly.ClientReceiveUnlock();
                     break;
                 case Msg.Resync when Net.Role == Role.Host:
                     SendWorld();
@@ -380,10 +383,19 @@ namespace WorldBoxMP
             Debug.Log("[WorldBoxMP] loaded host world: " + bytes.Length / 1024 + " KiB in " + sw.ElapsedMilliseconds + " ms");
         }
 
-        internal static void Tip(string text)
+        internal static void Tip(string key, params object[] args)
         {
-            Debug.Log("[WorldBoxMP] " + text);
-            WorldTip.showNow(text, false, "top", 4f);
+            Debug.Log("[WorldBoxMP] " + Lang.En(key, args));
+            WorldTip.showNow(Lang.T(key, args), false, "top", 4f);
+        }
+
+        public static void SaveAddress(string ip, int port)
+        {
+            Cfg = MPConfig.Load(Instance.GetDeclaration().FolderPath);
+            if (Cfg.HostIp == ip && Cfg.Port == port) return;
+            Cfg.HostIp = ip;
+            Cfg.Port = port;
+            Cfg.Save(System.IO.Path.Combine(Instance.GetDeclaration().FolderPath, "WorldBoxMP.cfg"));
         }
     }
 }

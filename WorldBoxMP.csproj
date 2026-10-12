@@ -21,6 +21,7 @@
   <ItemGroup>
     <Reference Include="Assembly-CSharp"><HintPath>$(Managed)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Newtonsoft.Json"><HintPath>$(Managed)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="DOTween"><HintPath>$(Managed)\DOTween.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Facepunch.Steamworks.Win64"><HintPath>$(Managed)\Facepunch.Steamworks.Win64.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="SimpleZip"><HintPath>$(Managed)\SimpleZip.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Ionic.Zlib.CF"><HintPath>$(Managed)\Ionic.Zlib.CF.dll</HintPath><Private>false</Private></Reference>

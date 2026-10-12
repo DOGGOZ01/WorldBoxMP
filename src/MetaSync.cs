@@ -507,7 +507,10 @@ namespace WorldBoxMP
                 foreach (ZoneData z in data.zones) keep.Add(((long)z.x << 32) | (uint)z.y);
             foreach (TileZone zone in new List<TileZone>(CityZones(city)))
                 if (!keep.Contains(((long)zone.x << 32) | (uint)zone.y)) CityRemoveZone(city, zone);
+            Kingdom k = Access.CityKingdom(city);
+            bool wasCapital = k != null && k.capital == city;
             city.loadCity(data);
+            if (wasCapital && Access.CityKingdom(city) == k && k.capital == null) k.setCapital(city);
         }
 
         public static bool HasUnsent()
@@ -520,18 +523,42 @@ namespace WorldBoxMP
         static readonly Dictionary<long, KeyValuePair<long, long>> _hostKingdomLinks = new Dictionary<long, KeyValuePair<long, long>>();
         static readonly Dictionary<long, long> _hostLeaders = new Dictionary<long, long>();
         public static int Relinks;
+        static readonly Dictionary<string, int> _relinkWhy = new Dictionary<string, int>();
+        static float _relinkLogTimer;
+
+        static void Why(string what)
+        {
+            _relinkWhy.TryGetValue(what, out int n);
+            _relinkWhy[what] = n + 1;
+        }
+
+        static void LogRelinks()
+        {
+            _relinkLogTimer -= Time.unscaledDeltaTime;
+            if (_relinkLogTimer > 0f || _relinkWhy.Count == 0) return;
+            _relinkLogTimer = 10f;
+            var top = new List<KeyValuePair<string, int>>(_relinkWhy);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            var sb = new System.Text.StringBuilder("relinks in 10 s:");
+            for (int i = 0; i < top.Count && i < 6; i++) sb.Append(' ').Append(top[i].Key).Append('=').Append(top[i].Value);
+            SessionLog.Write(sb.ToString());
+            _relinkWhy.Clear();
+        }
 
         public static void Relink()
         {
             MapBox w = World.world;
+            LogRelinks();
             foreach (Kingdom k in w.kingdoms)
             {
                 if (!_hostKingdomLinks.TryGetValue(k.getID(), out var l)) continue;
-                if (l.Value < 0 && k.king != null) { k.clearKingData(); Relinks++; }
-                if (l.Key < 0 && k.capital != null) { k.clearCapital(); Relinks++; }
+                if (l.Value < 0 && k.king != null) { k.clearKingData(); Relinks++; Why("k" + k.getID() + ":no_king"); }
+                if (l.Key < 0 && k.capital != null) { k.clearCapital(); Relinks++; Why("k" + k.getID() + ":no_capital"); }
                 bool capitalOk = l.Key < 0 || (k.capital != null && k.capital.getID() == l.Key) || w.cities.get(l.Key) == null;
-                bool kingOk = l.Value < 0 || (k.king != null && k.king.getID() == l.Value) || w.units.get(l.Value) == null;
+                bool kingOk = l.Value < 0 || (k.king != null && k.king == w.units.get(l.Value)) || w.units.get(l.Value) == null;
                 if (capitalOk && kingOk) continue;
+                Why("k" + k.getID() + (capitalOk ? "" : ":capital(" + (k.capital != null ? k.capital.getID().ToString() : "none") + "->" + l.Key + ")") +
+                    (kingOk ? "" : ":king(" + (k.king != null ? k.king.getID() + (k.king.isRekt() ? "rekt" : "") : "none") + "->" + l.Value + ")"));
                 k.data.capitalID = l.Key;
                 k.data.kingID = l.Value;
                 try { KingdomLoad2(k); Relinks++; }
@@ -542,11 +569,12 @@ namespace WorldBoxMP
                 if (!_hostLeaders.TryGetValue(c.getID(), out long leader)) continue;
                 if (leader < 0)
                 {
-                    if (c.leader != null) { c.leader = null; Relinks++; }
+                    if (c.leader != null) { c.leader = null; Relinks++; Why("c" + c.getID() + ":no_leader"); }
                     continue;
                 }
-                if (c.leader != null && c.leader.getID() == leader) continue;
+                if (c.leader != null && c.leader == w.units.get(leader)) continue;
                 if (w.units.get(leader) == null) continue;
+                Why("c" + c.getID() + ":leader(" + (c.leader != null ? c.leader.getID() + (c.leader.isRekt() ? "rekt" : "") : "none") + "->" + leader + ")");
                 c.data.leaderID = leader;
                 try { c.loadLeader(); Relinks++; }
                 catch (Exception e) { Failures++; Debug.Log("[WorldBoxMP] city relink " + c.getID() + ": " + e.Message); }

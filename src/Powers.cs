@@ -24,10 +24,14 @@ namespace WorldBoxMP
         static TopTileType _remoteFirstTopType;
         static float _remoteTimer = -1f;
         static float _lastRemoteClick = -10f;
+        static float _lastDenied = -10f;
         const float StrokeGap = 0.25f;
+
+        public static int SentCount;
 
         public static void SendClick(Vector2Int pos, GodPower power)
         {
+            SentCount++;
             var ms = new MemoryStream();
             var w = new BinaryWriter(ms);
             w.Write(pos.x);
@@ -52,6 +56,13 @@ namespace WorldBoxMP
             if (power == null)
             {
                 Debug.Log("[WorldBoxMP] unknown power from client: " + id);
+                return;
+            }
+            Perm need = Rules.Of(power);
+            if (!Rules.HostAllowsPower(power))
+            {
+                if (Time.unscaledTime - _lastDenied > 1f) Rules.Deny(need, "tip_denied");
+                _lastDenied = Time.unscaledTime;
                 return;
             }
             ActorAsset spawned = AssetManager.actor_library.get(id);

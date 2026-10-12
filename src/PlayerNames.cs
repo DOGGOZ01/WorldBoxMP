@@ -20,6 +20,8 @@ namespace WorldBoxMP
 
         public static string RemoteName => _remoteName;
 
+        public static bool OtherControls(long id) => _remoteUnits.Contains(id);
+
         private static float _sendTimer;
 
         private static int _sentHash;

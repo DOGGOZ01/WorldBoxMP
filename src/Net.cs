@@ -31,6 +31,10 @@ namespace WorldBoxMP
         BucketList = 20,
         ObjRepair = 21,
         Order = 22,
+        Rules = 23,
+        Denied = 24,
+        Laws = 25,
+        Unlock = 26,
     }
 
     public struct Packet
@@ -196,7 +200,7 @@ namespace WorldBoxMP
 
     public static class Net
     {
-        public const int ProtocolVersion = 14;
+        public const int ProtocolVersion = 18;
 
         public static Role Role { get; private set; } = Role.None;
         public static Peer Peer { get; private set; }
