@@ -246,6 +246,24 @@ namespace WorldBoxMP
                 "................",
                 "................",
             } },
+            { "player", new[] {
+                "................",
+                "......kkkk......",
+                ".....kwwwwk.....",
+                ".....kwwwwk.....",
+                ".....kwwwwk.....",
+                "......kkkk......",
+                "....kkwwwwkk....",
+                "...kwwwwwwwwk...",
+                "..kwwwwwwwwwwk..",
+                "..kwwkwwwwkwwk..",
+                "..kwwkwwwwkwwk..",
+                "..kkkkwwwwkkkk..",
+                ".....kwwwwk.....",
+                ".....kwwkkwwk...",
+                ".....kkk..kkk...",
+                "................",
+            } },
         };
 
         static readonly Dictionary<string, Sprite> _made = new Dictionary<string, Sprite>();

@@ -18,13 +18,15 @@ namespace WorldBoxMP
         }
 
         static readonly HashSet<long> _sent = new HashSet<long>();
-        static readonly HashSet<long> _friendOwned = new HashSet<long>();
+        static readonly Dictionary<long, byte> _friendOwned = new Dictionary<long, byte>();
         static string _expectedAsset;
+        static byte _expectedSlot = 1;
         static float _expectedUntil;
 
         public static void ExpectFriendCreature(string assetId)
         {
             _expectedAsset = assetId;
+            _expectedSlot = Net.Current != null ? Net.Current.Slot : (byte)1;
             _expectedUntil = Time.unscaledTime + 15f;
         }
         static readonly List<long> _gone = new List<long>();
@@ -67,7 +69,7 @@ namespace WorldBoxMP
             foreach (Actor a in now) ids.Add(a.getID());
             _gone.Clear();
             foreach (long id in _sent) if (!ids.Contains(id)) _gone.Add(id);
-            _friendOwned.RemoveWhere(id => !ids.Contains(id));
+            foreach (long gone in new List<long>(_friendOwned.Keys)) if (!ids.Contains(gone)) _friendOwned.Remove(gone);
             w.Write(_gone.Count);
             foreach (long id in _gone)
             {
@@ -82,7 +84,7 @@ namespace WorldBoxMP
                 bool isNew = _sent.Add(id);
                 w.Write(id);
                 w.Write(isNew);
-                w.Write(_friendOwned.Contains(id));
+                w.Write(_friendOwned.TryGetValue(id, out byte owner) ? owner : (byte)0);
                 if (isNew)
                 {
                     a.prepareForSave();
@@ -92,7 +94,7 @@ namespace WorldBoxMP
                 w.Write(a.current_position.x);
                 w.Write(a.current_position.y);
                 if (log) SessionLog.Write("special creature " + id + " " + a.asset.id + " at " + a.current_position.x.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + ":" +
-                                          a.current_position.y.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + (_friendOwned.Contains(id) ? " (second player's)" : " (host's)") + " crab updates " + _crabUpdates);
+                                          a.current_position.y.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + (_friendOwned.ContainsKey(id) ? " (slot " + _friendOwned[id] + ")" : " (host's)") + " crab updates " + _crabUpdates);
                 Crabzilla crab = a.getActorComponent<Crabzilla>();
                 bool controlled = ControllableUnit.isControllingUnit(a);
                 w.Write(crab != null && crab.isBeamEnabled());
@@ -124,7 +126,8 @@ namespace WorldBoxMP
             {
                 long id = r.ReadInt64();
                 bool isNew = r.ReadBoolean();
-                bool mine = r.ReadBoolean();
+                byte ownerSlot = r.ReadByte();
+                bool mine = ownerSlot != 0 && ownerSlot == Roster.LocalSlot;
                 string json = isNew ? r.ReadString() : null;
                 var s = new State
                 {
@@ -198,7 +201,7 @@ namespace WorldBoxMP
                 bool expected = _expectedAsset != null && Time.unscaledTime < _expectedUntil && pActor != null && pActor.asset.id == _expectedAsset;
                 if (Net.Role == Role.Host && (Powers.ApplyingRemote || expected) && IsSpecial(pActor))
                 {
-                    _friendOwned.Add(pActor.getID());
+                    _friendOwned[pActor.getID()] = Net.Current != null ? Net.Current.Slot : _expectedSlot;
                     _expectedAsset = null;
                     SessionLog.Write("special creature " + pActor.getID() + " " + pActor.asset.id + " belongs to the second player");
                     return false;
@@ -214,8 +217,8 @@ namespace WorldBoxMP
             {
                 __state = false;
                 _crabUpdates++;
-                if (Net.Role != Role.Host || _driving || ComponentActor(__instance) == null || !_friendOwned.Contains(ComponentActor(__instance).getID())) return;
-                RemotePossession.FriendInput(out Vector2 move, out Vector2 mouse, out bool attack);
+                if (Net.Role != Role.Host || _driving || ComponentActor(__instance) == null || !_friendOwned.TryGetValue(ComponentActor(__instance).getID(), out byte slot)) return;
+                RemotePossession.FriendInput(slot, out Vector2 move, out Vector2 mouse, out bool attack);
                 BeginDrive(new State { Pos = ComponentActor(__instance).current_position, Beam = attack, Move = move, Moving = move != Vector2.zero, Aim = mouse });
                 __state = true;
             }

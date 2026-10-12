@@ -240,6 +240,24 @@ ICONS = {
 "..kk........kk..",
 "................",
 "................",
+],
+'player': [
+"................",
+"......kkkk......",
+".....kwwwwk.....",
+".....kwwwwk.....",
+".....kwwwwk.....",
+"......kkkk......",
+"....kkwwwwkk....",
+"...kwwwwwwwwk...",
+"..kwwwwwwwwwwk..",
+"..kwwkwwwwkwwk..",
+"..kwwkwwwwkwwk..",
+"..kkkkwwwwkkkk..",
+".....kwwwwk.....",
+".....kwwkkwwk...",
+".....kkk..kkk...",
+"................",
 ]
 }
 

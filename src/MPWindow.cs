@@ -48,7 +48,7 @@ namespace WorldBoxMP
 
             _offline = Ui.Group(transform, Width);
             Ui.Button(_offline.transform, "host", "host", true, () => MPMod.Instance.Host(), Width);
-            Ui.Button(_offline.transform, "on", "perm_title", false, RulesWindow.Open, Width);
+            Ui.Button(_offline.transform, "on", "players_can", false, () => RulesWindow.Open(null), Width);
             Ui.Button(_offline.transform, "key", "unlock_all", false, HostOnly.UnlockEverything, Width);
             Ui.Hint(_offline.transform, "hint_host", Width);
             Ui.Separator(_offline.transform, Width);
@@ -68,12 +68,14 @@ namespace WorldBoxMP
             _hosting = Ui.Group(transform, Width);
             Ui.Button(_hosting.transform, "invite", "invite", true, SteamSession.Invite, Width);
             Ui.Hint(_hosting.transform, "hint_invite", Width);
-            Ui.Button(_hosting.transform, "on", "perm_title", false, RulesWindow.Open, Width);
+            Ui.Button(_hosting.transform, "tab", "lobby", false, LobbyWindow.Open, Width);
+            Ui.Button(_hosting.transform, "on", "players_can", false, () => RulesWindow.Open(null), Width);
             Ui.Button(_hosting.transform, "key", "unlock_all", false, HostOnly.UnlockEverything, Width);
             Ui.Button(_hosting.transform, "reload", "resync", false, () => MPMod.Instance.Resync(), Width);
             Ui.Button(_hosting.transform, "leave", "stop_host", false, () => MPMod.Instance.StopSession(), Width);
 
             _client = Ui.Group(transform, Width);
+            Ui.Button(_client.transform, "tab", "lobby", false, LobbyWindow.Open, Width);
             Ui.Button(_client.transform, "reload", "resync", false, () => MPMod.Instance.Resync(), Width);
             Ui.Button(_client.transform, "leave", "disconnect", false, () => MPMod.Instance.StopSession(), Width);
             _offList = Ui.Hint(_client.transform, "live_empty", Width);
@@ -158,18 +160,24 @@ namespace WorldBoxMP
     {
         const float Width = 190f;
         readonly List<KeyValuePair<Perm, Image>> _toggles = new List<KeyValuePair<Perm, Image>>();
+        LocalizedText _who;
+        GameObject _shared;
 
-        public static void Open()
+        public static void Open(Guest g)
         {
-            if (Instance == null) CreateWindow("wbmp_rules", Lang.Id("perm_title"));
+            Rules.Editing = g;
+            if (Instance == null) CreateWindow("wbmp_rules", Lang.Id("players_can"));
             if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
             ScrollWindow.showWindow("wbmp_rules");
+            Instance.Refresh();
         }
 
         protected override void Init()
         {
             layout.spacing = 4f;
             layout.padding = new RectOffset(0, 0, 8, 10);
+            _who = Ui.Label(transform, null, 9, Ui.Gold, new Vector2(Width, 14f), TextAnchor.MiddleCenter);
+            _shared = Ui.Button(transform, "tab", "rules_shared", false, () => { Rules.UseShared(Rules.Editing); Refresh(); }, Width).gameObject;
             foreach (Perm p in Rules.List)
             {
                 Perm perm = p;
@@ -186,9 +194,13 @@ namespace WorldBoxMP
 
         public override void OnNormalEnable() => Refresh();
 
-        void Refresh()
+        public void Refresh()
         {
-            foreach (var t in _toggles) t.Value.sprite = Icons.Get(Rules.HostAllows(t.Key) ? "on" : "off");
+            Guest g = Rules.Editing;
+            Lang.Live(_who, "rules_who", g == null ? Lang.T("players_can") : Lang.T("rules_for", g.Label));
+            _shared.SetActive(g != null && g.OwnRules);
+            foreach (var t in _toggles) t.Value.sprite = Icons.Get(Rules.TargetAllows(t.Key) ? "on" : "off");
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)transform);
         }
     }
 
@@ -266,16 +278,165 @@ namespace WorldBoxMP
             int allowed = 0;
             foreach (GodPower gp in powers)
             {
-                bool on = !Rules.HostDenied.Contains(gp.id);
+                bool on = !Rules.TargetDenies(gp.id);
                 if (on) allowed++;
                 if (_filter == Filter.Allowed && !on || _filter == Filter.Denied && on) continue;
                 GodPower power = gp;
                 Ui.PowerCell(_grid, power, on, () => { Rules.TogglePower(power.id); Rebuild(); }, Cell);
             }
-            Lang.Live(_count, "power_count", Lang.T("allowed_count", allowed, powers.Count) + (Rules.HostAllows(_perm) ? "" : " · " + Lang.T("tip_denied", Rules.Name(_perm))));
+            Lang.Live(_count, "power_count", Lang.T("allowed_count", allowed, powers.Count) + (Rules.TargetAllows(_perm) ? "" : " · " + Lang.T("tip_denied", Rules.Name(_perm))));
             Canvas.ForceUpdateCanvases();
             LayoutRebuilder.ForceRebuildLayoutImmediate(_grid);
             LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)transform);
+        }
+    }
+
+    public class LobbyWindow : SingleAutoLayoutWindow<LobbyWindow>
+    {
+        const float Width = 190f;
+        RectTransform _list;
+        string _shown;
+        float _timer;
+
+        public static void Open()
+        {
+            if (Instance == null) CreateWindow("wbmp_lobby", Lang.Id("lobby"));
+            if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
+            ScrollWindow.showWindow("wbmp_lobby");
+            Instance._shown = null;
+            Instance.Rebuild();
+        }
+
+        protected override void Init()
+        {
+            layout.spacing = 5f;
+            layout.padding = new RectOffset(0, 0, 8, 10);
+            var go = new GameObject("list", typeof(RectTransform));
+            go.transform.SetParent(transform, false);
+            _list = (RectTransform)go.transform;
+            _list.sizeDelta = new Vector2(Width, 10f);
+            var v = go.AddComponent<VerticalLayoutGroup>();
+            v.spacing = 4f;
+            v.childAlignment = TextAnchor.UpperCenter;
+            v.childControlWidth = false;
+            v.childControlHeight = false;
+            v.childForceExpandWidth = false;
+            v.childForceExpandHeight = false;
+            go.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        }
+
+        public override void OnNormalEnable() { _shown = null; Rebuild(); }
+
+        void Update()
+        {
+            if (!IsOpened) return;
+            _timer -= Time.unscaledDeltaTime;
+            if (_timer > 0f) return;
+            _timer = 0.5f;
+            Rebuild();
+        }
+
+        static string Signature()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(Net.Role).Append('|').Append(Roster.LocalSlot).Append('|');
+            foreach (PlayerInfo p in Roster.Players) sb.Append(p.Slot).Append(p.Name).Append(p.PingMs / 10).Append(';');
+            for (int i = 0; i < Lobby.MaxGuests; i++) sb.Append(SlotState(i));
+            foreach (var kv in Lobby.Kicked) sb.Append(kv.Key);
+            if (Net.Role == Role.Host) foreach (Guest g in Net.Guests) sb.Append(g.Slot).Append(g.OwnRules);
+            return sb.ToString();
+        }
+
+        static byte SlotState(int i)
+        {
+            if (Net.Role != Role.Host) return Lobby.SlotState[i];
+            return (byte)(Net.GuestIn((byte)(i + 1)) != null ? 2 : Lobby.SlotOpen[i] ? 1 : 0);
+        }
+
+        void Rebuild()
+        {
+            if (_list == null) return;
+            string sig = Signature();
+            if (sig == _shown) return;
+            _shown = sig;
+            for (int i = _list.childCount - 1; i >= 0; i--) Destroy(_list.GetChild(i).gameObject);
+            bool host = Net.Role == Role.Host;
+            if (Roster.Players.Count == 0 && host) Roster.FromHost();
+
+            PlayerRow(Roster.Get(0) ?? new PlayerInfo { Slot = 0, Name = PlayerNames.LocalName }, host);
+            for (int i = 0; i < Lobby.MaxGuests; i++)
+            {
+                byte slot = (byte)(i + 1);
+                byte state = SlotState(i);
+                PlayerInfo p = Roster.Get(slot);
+                if (state == 2 && p != null) PlayerRow(p, host);
+                else if (state == 2 && host && Net.GuestIn(slot) != null) PlayerRow(new PlayerInfo { Slot = slot, Name = Net.GuestIn(slot).Label }, true);
+                else EmptyRow(i, state, host);
+            }
+
+            if (host && Lobby.Kicked.Count > 0)
+            {
+                Ui.Separator(_list, Width);
+                Ui.Label(_list, Lang.Id("removed_title"), 9, Ui.Gold, new Vector2(Width, 14f), TextAnchor.MiddleCenter);
+                foreach (var kv in new List<KeyValuePair<string, string>>(Lobby.Kicked))
+                {
+                    string key = kv.Key;
+                    RectTransform row = Ui.Panel(_list, new Vector2(Width, 24f));
+                    LocalizedText name = Ui.Label(row, null, 8, Ui.Pale, new Vector2(Width - 90f, 18f), TextAnchor.MiddleLeft);
+                    ((RectTransform)name.transform).anchoredPosition = new Vector2(-38f, 0f);
+                    Lang.Live(name, "kicked_" + key, kv.Value);
+                    Button again = Ui.TextButton(row, "invite_again", () => { Lobby.InviteAgain(key); _shown = null; Rebuild(); }, 80f, 18f);
+                    ((RectTransform)again.transform).anchoredPosition = new Vector2(Width / 2f - 44f, 0f);
+                }
+            }
+            if (host && Lobby.FreeSlot() != 0)
+            {
+                Ui.Separator(_list, Width);
+                Ui.Button(_list, "invite", "invite", true, SteamSession.Invite, Width);
+            }
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_list);
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)transform);
+        }
+
+        void PlayerRow(PlayerInfo p, bool host)
+        {
+            RectTransform row = Ui.Panel(_list, new Vector2(Width, 32f));
+            Image fig = Ui.Image(row, Icons.Get("player"), new Vector2(20f, 20f));
+            fig.color = Lobby.ColorOf(p.Slot);
+            ((RectTransform)fig.transform).anchoredPosition = new Vector2(-Width / 2f + 16f, 0f);
+            bool me = p.Slot == Roster.LocalSlot;
+            float textW = Width - (host && p.Slot != 0 ? 86f : 40f);
+            LocalizedText name = Ui.Label(row, null, 9, Lobby.ColorOf(p.Slot), new Vector2(textW, 15f), TextAnchor.MiddleLeft);
+            ((RectTransform)name.transform).anchoredPosition = new Vector2(-Width / 2f + 30f + textW / 2f, 6f);
+            Lang.Live(name, "lobby_name_" + p.Slot, p.Name + (me ? " " + Lang.T("you") : ""));
+            LocalizedText detail = Ui.Label(row, null, 7, Ui.Pale, new Vector2(textW, 12f), TextAnchor.MiddleLeft);
+            ((RectTransform)detail.transform).anchoredPosition = new Vector2(-Width / 2f + 30f + textW / 2f, -7f);
+            string info = p.Slot == 0 ? Lang.T("role_host") : p.PingMs > 0 ? Lang.T("ping", p.PingMs) : "";
+            Guest g = host ? Net.GuestIn(p.Slot) : null;
+            if (g != null && g.OwnRules) info += (info.Length > 0 ? " · " : "") + Lang.T("rules_own");
+            Lang.Live(detail, "lobby_detail_" + p.Slot, info);
+            if (g == null) return;
+            byte slot = p.Slot;
+            Button kick = Ui.IconButton(row, "cross", "kick", () => { Lobby.Kick(slot); _shown = null; Rebuild(); }, 20f);
+            ((RectTransform)kick.transform).anchoredPosition = new Vector2(Width / 2f - 16f, 0f);
+            Button rules = Ui.IconButton(row, "gear", "players_can", () => RulesWindow.Open(Net.GuestIn(slot)), 20f);
+            ((RectTransform)rules.transform).anchoredPosition = new Vector2(Width / 2f - 40f, 0f);
+        }
+
+        void EmptyRow(int index, byte state, bool host)
+        {
+            RectTransform row = Ui.Panel(_list, new Vector2(Width, 26f));
+            Image fig = Ui.Image(row, Icons.Get("player"), new Vector2(18f, 18f));
+            fig.color = new Color(1f, 1f, 1f, 0.15f);
+            ((RectTransform)fig.transform).anchoredPosition = new Vector2(-Width / 2f + 16f, 0f);
+            LocalizedText text = Ui.Label(row, Lang.Id(state == 0 ? "slot_closed" : "slot_open"), 8, state == 0 ? new Color(0.6f, 0.55f, 0.5f) : Ui.Pale,
+                new Vector2(Width - 90f, 18f), TextAnchor.MiddleLeft);
+            ((RectTransform)text.transform).anchoredPosition = new Vector2(-12f, 0f);
+            if (!host) return;
+            int i = index;
+            Button toggle = Ui.TextButton(row, state == 0 ? "open_slot" : "close_slot", () => { Lobby.ToggleSlot(i); _shown = null; Rebuild(); }, 62f, 18f);
+            ((RectTransform)toggle.transform).anchoredPosition = new Vector2(Width / 2f - 36f, 0f);
         }
     }
 

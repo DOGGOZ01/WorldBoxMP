@@ -34,6 +34,13 @@ address is typed right there) when not connected; Invite friend, Reload world an
 Reload world and Disconnect for the second player; the logs folder in the corner. The interface follows the
 game's language (all 38 WorldBox languages, `lang/strings.py`). The hotkeys below do the same.
 
+### Players (up to four)
+The host plus up to three players. The "Players" window lists everyone in their colour (host orange, then blue,
+green, purple; cursors and names match) with their ping. The host can remove a player (they cannot come back on
+their own until the host presses "invite again"), close or open free slots (no free open slot: joining is refused),
+and give a player their own rules or put them back on the shared ones. The world stream is built once per tick and
+sent to every player, so each extra player costs the host little more than bandwidth.
+
 ### What the second player may do
 The host's menu has "Second player can": ten switches (terrain, creatures, nature, destruction, other powers,
 kingdom relations, renaming and editing, unit orders, unit control, speed and pause), all on when the game

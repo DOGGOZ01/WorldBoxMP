@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -35,6 +36,12 @@ namespace WorldBoxMP
         Denied = 24,
         Laws = 25,
         Unlock = 26,
+        Welcome = 27,
+        Lobby = 28,
+        Kicked = 29,
+        Refused = 30,
+        Magnet = 31,
+        Boulder = 32,
     }
 
     public struct Packet
@@ -55,6 +62,7 @@ namespace WorldBoxMP
         public virtual long PendingBytes => 0;
         public virtual int SendRate => 0;
         public virtual void Pump() { }
+        public virtual string BanKey => null;
         public abstract void Dispose();
     }
 
@@ -74,6 +82,14 @@ namespace WorldBoxMP
 
         public override bool Closed => _closed;
         public override string Remote => _remote;
+        public override string BanKey
+        {
+            get
+            {
+                try { return "ip:" + ((IPEndPoint)_tcp.Client.RemoteEndPoint).Address; }
+                catch { return null; }
+            }
+        }
 
         public TcpPeer(TcpClient tcp)
         {
@@ -198,20 +214,132 @@ namespace WorldBoxMP
         }
     }
 
+    public class Guest
+    {
+        public byte Slot;
+        public Peer Peer;
+        public bool Ready;
+        public string Name = "";
+        public readonly HashSet<long> Units = new HashSet<long>();
+        public int PingMs;
+        public string BanKey;
+        public bool ViewKnown;
+        public float MinX, MinY, MaxX, MaxY;
+        public bool OwnRules;
+        public Perm Perms = Perm.All;
+        public readonly HashSet<string> Denied = new HashSet<string>();
+
+        public string Label => string.IsNullOrEmpty(Name) ? Peer?.Remote ?? "?" : Name;
+    }
+
+    class BroadcastPeer : Peer
+    {
+        public override bool Closed => !Net.HasReadyGuest;
+        public override string Remote
+        {
+            get
+            {
+                var names = new List<string>();
+                foreach (Guest g in Net.Guests) if (g.Ready) names.Add(g.Label);
+                return names.Count == 0 ? "none" : string.Join(",", names.ToArray());
+            }
+        }
+
+        public override void Send(Msg type, byte[] data)
+        {
+            foreach (Guest g in Net.Guests)
+                if (g.Ready && !g.Peer.Closed) g.Peer.Send(type, data);
+        }
+
+        public override void SendUnreliable(Msg type, byte[] data)
+        {
+            foreach (Guest g in Net.Guests)
+                if (g.Ready && !g.Peer.Closed) g.Peer.SendUnreliable(type, data);
+        }
+
+        public override long PendingBytes
+        {
+            get
+            {
+                long most = 0;
+                foreach (Guest g in Net.Guests) if (g.Ready && !g.Peer.Closed) most = Math.Max(most, g.Peer.PendingBytes);
+                return most;
+            }
+        }
+
+        public override int SendRate
+        {
+            get
+            {
+                int least = 0;
+                foreach (Guest g in Net.Guests)
+                {
+                    if (!g.Ready || g.Peer.Closed) continue;
+                    int r = g.Peer.SendRate;
+                    if (r > 0 && (least == 0 || r < least)) least = r;
+                }
+                return least;
+            }
+        }
+
+        public override void Pump()
+        {
+            foreach (Guest g in Net.Guests) g.Peer.Pump();
+        }
+
+        public override void Dispose() { }
+    }
+
     public static class Net
     {
-        public const int ProtocolVersion = 18;
+        public const int ProtocolVersion = 20;
 
         public static Role Role { get; private set; } = Role.None;
-        public static Peer Peer { get; private set; }
+        static Peer _peer;
+        static readonly BroadcastPeer _broadcast = new BroadcastPeer();
+
+        public static Peer Peer => Role == Role.Host ? (HasReadyGuest ? _broadcast : null) : _peer;
+
+        public static readonly List<Guest> Guests = new List<Guest>();
+
+        public static Guest Current;
+
+        public static bool HasReadyGuest
+        {
+            get
+            {
+                foreach (Guest g in Guests) if (g.Ready && !g.Peer.Closed) return true;
+                return false;
+            }
+        }
+
+        public static void Reply(Msg type, byte[] data)
+        {
+            if (Role == Role.Host) Current?.Peer.Send(type, data);
+            else _peer?.Send(type, data);
+        }
+
+        public static Guest GuestIn(byte slot)
+        {
+            foreach (Guest g in Guests) if (g.Slot == slot) return g;
+            return null;
+        }
+
+        public static void AddGuest(Guest g) => Guests.Add(g);
+
+        public static void RemoveGuest(Guest g)
+        {
+            Guests.Remove(g);
+            try { g.Peer.Dispose(); } catch { }
+        }
 
         static TcpListener _listener;
         static readonly ConcurrentQueue<Peer> _accepted = new ConcurrentQueue<Peer>();
 
-        public static bool IsClientConnected => Role == Role.Client && Peer != null && !Peer.Closed;
+        public static bool IsClientConnected => Role == Role.Client && _peer != null && !_peer.Closed;
 
         public static bool MirrorWorld;
-        public static bool IsHostWithPeer => Role == Role.Host && Peer != null && !Peer.Closed;
+        public static bool IsHostWithPeer => Role == Role.Host && HasReadyGuest;
 
         public static void StartHost(int port)
         {
@@ -236,18 +364,7 @@ namespace WorldBoxMP
 
         public static void Offer(Peer peer) => _accepted.Enqueue(peer);
 
-        public static Peer TakeAccepted()
-        {
-            if (!_accepted.TryDequeue(out var peer)) return null;
-            if (IsHostWithPeer)
-            {
-                peer.Dispose();
-                return null;
-            }
-            Peer?.Dispose();
-            Peer = peer;
-            return Peer;
-        }
+        public static Peer TakeAccepted() => _accepted.TryDequeue(out var peer) ? peer : null;
 
         public static void Connect(string host, int port)
         {
@@ -259,14 +376,14 @@ namespace WorldBoxMP
                 throw new TimeoutException("no answer from " + host + ":" + port);
             }
             Role = Role.Client;
-            Peer = new TcpPeer(tcp);
+            _peer = new TcpPeer(tcp);
         }
 
         public static void ConnectWith(Peer peer)
         {
-            Peer?.Dispose();
+            _peer?.Dispose();
             Role = Role.Client;
-            Peer = peer;
+            _peer = peer;
         }
 
         public static void BecomeHost()
@@ -275,17 +392,14 @@ namespace WorldBoxMP
             Role = Role.Host;
         }
 
-        public static void DropPeer()
-        {
-            Peer?.Dispose();
-            Peer = null;
-        }
-
         public static void Stop()
         {
             if (Role == Role.Client) ReleaseClientUnits();
-            Peer?.Dispose();
-            Peer = null;
+            _peer?.Dispose();
+            _peer = null;
+            foreach (Guest g in Guests) { try { g.Peer.Dispose(); } catch { } }
+            Guests.Clear();
+            Current = null;
             try { _listener?.Stop(); } catch { }
             _listener = null;
             while (_accepted.TryDequeue(out var p)) p.Dispose();

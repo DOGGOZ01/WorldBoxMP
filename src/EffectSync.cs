@@ -145,7 +145,9 @@ namespace WorldBoxMP
                                 EffectsLibrary.spawn(id, tile, Null(p1), Null(p2), f1, x, y);
                                 break;
                             case Kind.SpawnAt:
-                                EffectsLibrary.spawnAt(id, new Vector3(x, y), f1);
+                                _boulderPath = id == "fx_boulder" ? Null(p1) : null;
+                                try { EffectsLibrary.spawnAt(id, new Vector3(x, y), f1); }
+                                finally { _boulderPath = null; }
                                 break;
                             case Kind.SpawnAtTile:
                                 if (tile != null) EffectsLibrary.spawnAtTile(id, tile, f1);
@@ -187,6 +189,52 @@ namespace WorldBoxMP
         public static void UpdateClient()
         {
             Access.StackEffects(World.world).update(Access.Elapsed(World.world));
+        }
+
+        static string _boulderPath;
+        static readonly AccessTools.FieldRef<Boulder, Vector2> BoulderPrev = AccessTools.FieldRefAccess<Boulder, Vector2>("_previous_bounce_position");
+        static readonly AccessTools.FieldRef<Boulder, List<Vector2>> BoulderBounces = AccessTools.FieldRefAccess<Boulder, List<Vector2>>("_bounce_positions");
+        static readonly AccessTools.FieldRef<Boulder, float> BoulderForce = AccessTools.FieldRefAccess<Boulder, float>("_force_timer");
+        static readonly AccessTools.FieldRef<Boulder, float> BoulderSpin = AccessTools.FieldRefAccess<Boulder, float>("angleRotation");
+        static readonly System.Action<Boulder> BoulderPlace =
+            AccessTools.MethodDelegate<System.Action<Boulder>>(AccessTools.Method(typeof(Boulder), "updateCurrentPosition"));
+
+        [HarmonyPatch(typeof(Boulder), nameof(Boulder.spawnOn))]
+        static class BoulderPath
+        {
+            static void Postfix(Boulder __instance)
+            {
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                if (Net.Role == Role.Host && Recording)
+                {
+                    for (int i = _pending.Count - 1; i >= 0; i--)
+                    {
+                        if (_pending[i].Id != "fx_boulder" || !string.IsNullOrEmpty(_pending[i].P1)) continue;
+                        var parts = new List<string>();
+                        Vector2 prev = BoulderPrev(__instance);
+                        parts.Add(prev.x.ToString("R", ci)); parts.Add(prev.y.ToString("R", ci));
+                        foreach (Vector2 b in BoulderBounces(__instance)) { parts.Add(b.x.ToString("R", ci)); parts.Add(b.y.ToString("R", ci)); }
+                        parts.Add(BoulderForce(__instance).ToString("R", ci));
+                        parts.Add(BoulderSpin(__instance).ToString("R", ci));
+                        Fx fx = _pending[i];
+                        fx.P1 = string.Join(" ", parts.ToArray());
+                        _pending[i] = fx;
+                        break;
+                    }
+                    return;
+                }
+                if (_boulderPath == null) return;
+                string[] v = _boulderPath.Split(' ');
+                if (v.Length < 10) return;
+                float F(int k) => float.Parse(v[k], ci);
+                BoulderPrev(__instance) = new Vector2(F(0), F(1));
+                List<Vector2> bounces = BoulderBounces(__instance);
+                bounces.Clear();
+                for (int k = 2; k + 1 < v.Length - 2; k += 2) bounces.Add(new Vector2(F(k), F(k + 1)));
+                BoulderForce(__instance) = F(v.Length - 2);
+                BoulderSpin(__instance) = F(v.Length - 1);
+                BoulderPlace(__instance);
+            }
         }
 
         [HarmonyPatch(typeof(StackEffects), nameof(StackEffects.update))]

@@ -26,6 +26,7 @@ namespace WorldBoxMP
                 tab.SetLayout(new List<string> { "session", "status" });
                 Tab = tab;
                 Add(tab, "menu", "tab", MPWindow.Open);
+                Add(tab, "lobby", "player", LobbyWindow.Open);
                 Add(tab, "invite", "invite", SteamSession.Invite);
                 Add(tab, "disconnect", "leave", () => MPMod.Instance.StopSession());
 

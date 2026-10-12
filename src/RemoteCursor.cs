@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using HarmonyLib;
 using UnityEngine;
@@ -12,8 +13,6 @@ namespace WorldBoxMP
             AccessTools.StaticFieldRefAccess<int>(AccessTools.Field(typeof(MouseCursor), "_cur_cursor"));
 
         const float SendInterval = 0.05f;
-        static readonly Color HostColor = new Color(1f, 0.66f, 0.2f);
-        static readonly Color ClientColor = new Color(0.45f, 0.85f, 1f);
 
         static float _sendTimer;
         static Vector2 _lastPos;
@@ -21,17 +20,21 @@ namespace WorldBoxMP
         static bool _lastVisible;
         static float _keepAlive;
 
-        static Vector2 _target, _shown;
-        static int _index;
-        static bool _visible;
-        static double _receivedAt = -100;
-        static bool _hasShown;
+        class Hand
+        {
+            public Vector2 Target, Shown;
+            public int Index;
+            public bool Visible, HasShown;
+            public double ReceivedAt = -100;
+        }
+        static readonly Dictionary<byte, Hand> _hands = new Dictionary<byte, Hand>();
         static GUIStyle _label;
+
+        public static bool HasHand(byte slot) => _hands.TryGetValue(slot, out Hand h) && h.HasShown && Clock.Now - h.ReceivedAt < 2.0;
 
         public static void Clear()
         {
-            _visible = false;
-            _hasShown = false;
+            _hands.Clear();
             _lastIndex = -1;
         }
 
@@ -68,32 +71,74 @@ namespace WorldBoxMP
             w.Write(pos.x);
             w.Write(pos.y);
             w.Write((byte)Mathf.Clamp(index, 0, 255));
-            Net.Peer.Send(Msg.Cursor, ms.ToArray());
+            byte[] payload = ms.ToArray();
+            if (Net.Role == Role.Host) Net.Peer.Send(Msg.Cursor, WithSlot(0, payload));
+            else Net.Peer.Send(Msg.Cursor, payload);
+        }
+
+        static byte[] WithSlot(byte slot, byte[] payload)
+        {
+            var b = new byte[payload.Length + 1];
+            b[0] = slot;
+            System.Buffer.BlockCopy(payload, 0, b, 1, payload.Length);
+            return b;
+        }
+
+        static void Relay(byte from, byte[] payload)
+        {
+            byte[] marked = WithSlot(from, payload);
+            foreach (Guest g in Net.Guests)
+                if (g.Ready && g.Slot != from && !g.Peer.Closed) g.Peer.Send(Msg.Cursor, marked);
         }
 
         public static void Receive(byte[] data)
         {
-            var r = new BinaryReader(new MemoryStream(data));
-            _visible = r.ReadBoolean();
-            _target = new Vector2(r.ReadSingle(), r.ReadSingle());
-            _index = r.ReadByte();
-            _receivedAt = Clock.Now;
-            if (!_hasShown) { _shown = _target; _hasShown = true; }
+            byte slot;
+            byte[] payload;
+            if (Net.Role == Role.Host)
+            {
+                if (Net.Current == null) return;
+                slot = Net.Current.Slot;
+                payload = data;
+                Relay(slot, data);
+            }
+            else
+            {
+                if (data.Length < 1) return;
+                slot = data[0];
+                payload = new byte[data.Length - 1];
+                System.Buffer.BlockCopy(data, 1, payload, 0, payload.Length);
+                if (slot == Roster.LocalSlot) return;
+            }
+            var r = new BinaryReader(new MemoryStream(payload));
+            if (!_hands.TryGetValue(slot, out Hand h)) _hands[slot] = h = new Hand();
+            h.Visible = r.ReadBoolean();
+            h.Target = new Vector2(r.ReadSingle(), r.ReadSingle());
+            h.Index = r.ReadByte();
+            h.ReceivedAt = Clock.Now;
+            if (!h.HasShown) { h.Shown = h.Target; h.HasShown = true; }
         }
 
         public static void Draw()
         {
-            if (!PlayerNames.InSession || !_visible || !_hasShown || Clock.Now - _receivedAt > 1.5) return;
-            if (Event.current.type != EventType.Repaint || WorldfallBridge.InFirstPerson) return;
+            if (!PlayerNames.InSession || Event.current.type != EventType.Repaint || WorldfallBridge.InFirstPerson) return;
+            foreach (var kv in _hands) DrawHand(kv.Key, kv.Value);
+        }
+
+        static void DrawHand(byte slot, Hand hand)
+        {
+            if (!hand.Visible || !hand.HasShown || Clock.Now - hand.ReceivedAt > 1.5) return;
+            PlayerInfo player = Roster.Get(slot);
+            if (Net.Role == Role.Host && Net.GuestIn(slot) == null) return;
             Camera cam = Camera.main;
             Texture2D[] textures = Cursors();
             if (cam == null || textures == null || textures.Length == 0) return;
-            Texture2D tex = _index < textures.Length && textures[_index] != null ? textures[_index] : textures[0];
+            Texture2D tex = hand.Index < textures.Length && textures[hand.Index] != null ? textures[hand.Index] : textures[0];
             if (tex == null) return;
 
-            _shown = Vector2.Lerp(_shown, _target, Mathf.Clamp01(Time.unscaledDeltaTime * 18f));
-            if ((_shown - _target).sqrMagnitude > 400f) _shown = _target;
-            Vector3 screen = cam.WorldToScreenPoint(new Vector3(_shown.x, _shown.y, 0f));
+            hand.Shown = Vector2.Lerp(hand.Shown, hand.Target, Mathf.Clamp01(Time.unscaledDeltaTime * 18f));
+            if ((hand.Shown - hand.Target).sqrMagnitude > 400f) hand.Shown = hand.Target;
+            Vector3 screen = cam.WorldToScreenPoint(new Vector3(hand.Shown.x, hand.Shown.y, 0f));
             if (screen.z < 0f) return;
             float x = screen.x, y = Screen.height - screen.y;
             if (x < -64f || y < -64f || x > Screen.width + 64f || y > Screen.height + 64f) return;
@@ -101,14 +146,14 @@ namespace WorldBoxMP
             float scale = Screen.dpi > 0f ? Mathf.Max(1f, Screen.dpi / 96f) : 1f;
             float w = tex.width * scale, h = tex.height * scale;
             Color old = GUI.color;
-            Color tint = Net.Role == Role.Host ? ClientColor : HostColor;
+            Color tint = Lobby.ColorOf(slot);
             GUI.color = new Color(0f, 0f, 0f, 0.35f);
             GUI.DrawTexture(new Rect(x + 2f, y + 2f, w, h), tex);
             GUI.color = tint;
             GUI.DrawTexture(new Rect(x, y, w, h), tex);
             GUI.color = old;
 
-            string name = PlayerNames.RemoteName;
+            string name = player?.Name;
             if (!string.IsNullOrEmpty(name) && MPMod.Cfg != null && MPMod.Cfg.ShowNames)
             {
                 if (_label == null)

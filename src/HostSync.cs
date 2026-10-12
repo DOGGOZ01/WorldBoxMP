@@ -75,6 +75,16 @@ namespace WorldBoxMP
 
         public static void Stop() => _ready = false;
 
+        public static void ResendOncePerObject()
+        {
+            StatusSync.Reset();
+            LiveState.ResetHost();
+            PositionSync.ResetHost();
+            AvatarSync.Reset();
+            SpecialActors.ResetHost();
+            MetaSync.ResendKingdomsAndCities();
+        }
+
         public static void Reload(long actorId) => _actors.Remove(actorId);
         public static void ReloadBuilding(long buildingId) => _buildings.Remove(buildingId);
 

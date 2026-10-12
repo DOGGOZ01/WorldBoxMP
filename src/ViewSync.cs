@@ -7,12 +7,9 @@ namespace WorldBoxMP
     {
         const float Near = 24f;
 
-        static bool _known;
-        static float _minX, _minY, _maxX, _maxY;
-
         static float _sendTimer;
 
-        public static void Reset() => _known = false;
+        public static void Reset() { }
 
         public static void UpdateClient()
         {
@@ -43,22 +40,35 @@ namespace WorldBoxMP
 
         public static void Receive(byte[] data)
         {
+            Guest g = Net.Current;
+            if (g == null) return;
             var r = new BinaryReader(new MemoryStream(data));
-            _minX = r.ReadSingle(); _minY = r.ReadSingle(); _maxX = r.ReadSingle(); _maxY = r.ReadSingle();
-            _known = true;
+            g.MinX = r.ReadSingle(); g.MinY = r.ReadSingle(); g.MaxX = r.ReadSingle(); g.MaxY = r.ReadSingle();
+            g.ViewKnown = true;
         }
 
         public static int Priority(Vector2 p)
         {
-            if (!_known) return 0;
-            float padX = (_maxX - _minX) * 0.15f, padY = (_maxY - _minY) * 0.15f;
-            if (p.x >= _minX - padX && p.x <= _maxX + padX && p.y >= _minY - padY && p.y <= _maxY + padY) return 0;
-            if (p.x >= _minX - Near && p.x <= _maxX + Near && p.y >= _minY - Near && p.y <= _maxY + Near) return 1;
-            return 2;
+            int best = 2;
+            bool any = false;
+            foreach (Guest g in Net.Guests)
+            {
+                if (!g.Ready) continue;
+                any = true;
+                if (!g.ViewKnown) return 0;
+                float padX = (g.MaxX - g.MinX) * 0.15f, padY = (g.MaxY - g.MinY) * 0.15f;
+                if (p.x >= g.MinX - padX && p.x <= g.MaxX + padX && p.y >= g.MinY - padY && p.y <= g.MaxY + padY) return 0;
+                if (p.x >= g.MinX - Near && p.x <= g.MaxX + Near && p.y >= g.MinY - Near && p.y <= g.MaxY + Near) best = 1;
+            }
+            return any ? best : 0;
         }
 
-        public static string Describe() => _known
-            ? "view " + _minX.ToString("0") + ":" + _minY.ToString("0") + "-" + _maxX.ToString("0") + ":" + _maxY.ToString("0")
-            : "view unknown";
+        public static string Describe()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (Guest g in Net.Guests)
+                if (g.ViewKnown) parts.Add(g.Slot + ":" + g.MinX.ToString("0") + ":" + g.MinY.ToString("0") + "-" + g.MaxX.ToString("0") + ":" + g.MaxY.ToString("0"));
+            return parts.Count == 0 ? "view unknown" : "view " + string.Join(",", parts.ToArray());
+        }
     }
 }

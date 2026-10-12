@@ -10,17 +10,18 @@ namespace WorldBoxMP
 {
     public static class PlayerNames
     {
-        private static readonly Color HostColor = new Color(1f, 0.66f, 0.2f);
+        public static string RemoteName
+        {
+            get
+            {
+                var names = new List<string>();
+                foreach (PlayerInfo p in Roster.Players)
+                    if (p.Slot != Roster.LocalSlot && !string.IsNullOrEmpty(p.Name)) names.Add(p.Name);
+                return string.Join(", ", names.ToArray());
+            }
+        }
 
-        private static readonly Color ClientColor = new Color(0.45f, 0.85f, 1f);
-
-        private static readonly HashSet<long> _remoteUnits = new HashSet<long>();
-
-        private static string _remoteName = "";
-
-        public static string RemoteName => _remoteName;
-
-        public static bool OtherControls(long id) => _remoteUnits.Contains(id);
+        public static bool OtherControls(long id) => Roster.OtherControls(id);
 
         private static float _sendTimer;
 
@@ -57,20 +58,15 @@ namespace WorldBoxMP
 
         public static void Clear()
         {
-            _remoteUnits.Clear();
-            _remoteName = "";
             _sentHash = 0;
             _sendTimer = 0f;
         }
 
         public static void Update()
         {
-            if (!InSession)
+            if (!Net.IsClientConnected)
             {
-                if (_remoteUnits.Count > 0 || _sentHash != 0)
-                {
-                    Clear();
-                }
+                if (_sentHash != 0) Clear();
                 return;
             }
             string localName = LocalName;
@@ -117,19 +113,22 @@ namespace WorldBoxMP
 
         public static void Receive(byte[] data)
         {
+            Guest g = Net.Current;
+            if (g == null) return;
             BinaryReader binaryReader = new BinaryReader(new MemoryStream(data));
             string text = binaryReader.ReadString();
             int num = binaryReader.ReadInt32();
-            if (text != _remoteName)
+            if (text != g.Name)
             {
-                SessionLog.Write("other player's name: " + text);
+                SessionLog.Write("player in slot " + g.Slot + " is " + text);
             }
-            _remoteName = text;
-            _remoteUnits.Clear();
+            g.Name = text;
+            g.Units.Clear();
             for (int i = 0; i < num; i++)
             {
-                _remoteUnits.Add(binaryReader.ReadInt64());
+                g.Units.Add(binaryReader.ReadInt64());
             }
+            Lobby.Changed();
         }
 
         public static void Draw()
@@ -144,24 +143,26 @@ namespace WorldBoxMP
             }
             EnsureStyle();
             bool firstPerson = Worldfall.Begin();
-            bool flag = Net.Role == Role.Host;
             HashSet<Actor> mine = ControllableUnit.getCotrolledUnits();
             if (mine != null)
             {
                 string localName = LocalName;
+                Color own = Lobby.ColorOf(Roster.LocalSlot);
                 foreach (Actor item in mine)
                 {
-                    DrawFor(item, localName, flag ? HostColor : ClientColor, firstPerson);
+                    if (Net.Role == Role.Host && RemotePossession.IsRemote(item)) continue;
+                    DrawFor(item, localName, own, firstPerson);
                 }
             }
-            if (_remoteUnits.Count == 0)
+            foreach (PlayerInfo p in Roster.Players)
             {
-                return;
-            }
-            foreach (long remoteUnit in _remoteUnits)
-            {
-                Actor actor = World.world.units.get(remoteUnit);
-                DrawFor(actor, _remoteName, flag ? ClientColor : HostColor, firstPerson);
+                if (p.Slot == Roster.LocalSlot) continue;
+                Color color = Lobby.ColorOf(p.Slot);
+                foreach (long id in p.Units)
+                {
+                    Actor actor = World.world.units.get(id);
+                    DrawFor(actor, p.Name, color, firstPerson);
+                }
             }
         }
 

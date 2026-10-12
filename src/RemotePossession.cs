@@ -39,10 +39,36 @@ namespace WorldBoxMP
             public bool[] Flags;
         }
 
-        static readonly HashSet<Actor> _remote = new HashSet<Actor>();
-        static InputState _remoteInput = new InputState { Flags = new bool[10] };
-        static readonly HashSet<Actor> _eventsConsumed = new HashSet<Actor>();
+        class Seat
+        {
+            public Guest Guest;
+            public readonly HashSet<Actor> Units = new HashSet<Actor>();
+            public InputState Input = new InputState { Flags = new bool[10] };
+            public readonly HashSet<Actor> EventsConsumed = new HashSet<Actor>();
+            public long MainId = -1;
+            public Vector2 MainPos;
+            public bool Walking;
+            public double LastTime = -1000;
+            public float StatusTimer, LogTimer;
+        }
+
+        static readonly Dictionary<Guest, Seat> _seats = new Dictionary<Guest, Seat>();
+        static Seat _acting;
         static bool _inRemoteAction;
+
+        static Seat SeatOf(Guest g)
+        {
+            if (g == null) return null;
+            if (!_seats.TryGetValue(g, out Seat s)) _seats[g] = s = new Seat { Guest = g };
+            return s;
+        }
+
+        static Seat SeatOf(Actor a)
+        {
+            if (a == null) return null;
+            foreach (Seat s in _seats.Values) if (s.Units.Contains(a)) return s;
+            return null;
+        }
 
         static bool _suppressSend;
         static bool _wasControlling;
@@ -50,26 +76,30 @@ namespace WorldBoxMP
         static float _inputTimer;
         static byte[] _lastInput;
 
-        static long _clientMainId = -1;
-        static Vector2 _clientPos;
-        static bool _clientWalking;
-        static double _lastRemoteTime = -1000;
-        static float _statusTimer;
-
         public static Vector2? TestMovement;
 
-        public static bool IsRemote(Actor a) => a != null && _remote.Contains(a);
+        public static bool IsRemote(Actor a) => SeatOf(a) != null;
 
-        public static void FriendInput(out Vector2 movement, out Vector2 mouse, out bool attackLeft)
+        public static byte HolderSlot(Actor a) => SeatOf(a)?.Guest.Slot ?? 0;
+
+        public static void FriendInput(byte slot, out Vector2 movement, out Vector2 mouse, out bool attackLeft)
         {
-            movement = _remoteInput.Movement;
-            mouse = _remoteInput.Mouse;
-            attackLeft = _remoteInput.Flags[0];
+            Seat s = SeatOf(Net.GuestIn(slot));
+            movement = s != null ? s.Input.Movement : Vector2.zero;
+            mouse = s != null ? s.Input.Mouse : Vector2.zero;
+            attackLeft = s != null && s.Input.Flags[0];
         }
 
-        public static bool HasRemote => _remote.Count > 0 || Clock.Now - _lastRemoteTime < 60.0;
+        public static bool HasRemote
+        {
+            get
+            {
+                foreach (Seat s in _seats.Values) if (s.Units.Count > 0 || Clock.Now - s.LastTime < 60.0) return true;
+                return false;
+            }
+        }
 
-        static bool FollowsClient(Actor a) => a != null && _clientMainId >= 0 && a.getID() == _clientMainId;
+        static bool FollowsClient(Seat s, Actor a) => a != null && s != null && s.MainId >= 0 && a.getID() == s.MainId;
 
         public static void ClientUpdate()
         {
@@ -84,7 +114,9 @@ namespace WorldBoxMP
             else if (_wasControlling)
             {
                 Net.Peer?.Send(Msg.Unpossess, null);
+                OwnUnit.Reset();
             }
+            else if (OwnUnit.Main != null) OwnUnit.Reset();
             _wasControlling = controlling;
         }
 
@@ -176,110 +208,123 @@ namespace WorldBoxMP
                 Actor a = World.world.units.get(id);
                 if (a == null || !a.isAlive() || !a.canBePossessed()) continue;
                 if (!SpecialActors.IsSpecial(a) && !Rules.HostAllows(Perm.Possess)) { refused.Add(id); continue; }
-                if (HostControls(a)) { refused.Add(id); busy = true; continue; }
-                _remote.Add(a);
+                Seat holder = SeatOf(a);
+                if (HostControls(a) || (holder != null && holder.Guest != Net.Current)) { refused.Add(id); busy = true; continue; }
+                SeatOf(Net.Current)?.Units.Add(a);
                 AddPossessedStatus(a);
                 names.Add(a.getID() + " " + a.asset.id);
             }
-            if (names.Count > 0) SessionLog.Write("friend possessed: " + string.Join(", ", names));
+            if (names.Count > 0) SessionLog.Write(Net.Current?.Label + " possessed: " + string.Join(", ", names));
             if (refused.Count > 0) Rules.Deny(Perm.Possess, busy ? "tip_unit_busy" : "tip_denied", refused);
         }
 
-        public static void HostReceiveUnpossess()
+        public static void HostReceiveUnpossess() => ReleaseGuest(Net.Current);
+
+        public static void ReleaseGuest(Guest g)
         {
-            foreach (Actor a in _remote)
+            Seat s = g != null && _seats.TryGetValue(g, out Seat found) ? found : null;
+            if (s == null) return;
+            foreach (Actor a in s.Units)
             {
                 if (a == null || !a.isAlive()) continue;
                 a.finishStatusEffect("possessed");
                 a.cancelAllBeh();
                 a.setPossessedMovement(false);
             }
-            if (_remote.Count > 0) SessionLog.Write("friend released " + _remote.Count + " unit(s)");
-            _remote.Clear();
-            _clientMainId = -1;
-            _clientWalking = false;
+            if (s.Units.Count > 0) SessionLog.Write(g.Label + " released " + s.Units.Count + " unit(s)");
+            s.Units.Clear();
+            s.MainId = -1;
+            s.Walking = false;
+        }
+
+        public static void ForgetGuest(Guest g)
+        {
+            ReleaseGuest(g);
+            if (g != null) _seats.Remove(g);
         }
 
         public static void HostReceiveInput(byte[] data)
         {
-            if (_remote.Count == 0 && !Rules.HostAllows(Perm.Possess)) return;
+            Seat seat = SeatOf(Net.Current);
+            if (seat == null || (seat.Units.Count == 0 && !Rules.HostAllows(Perm.Possess))) return;
+            ref InputState input = ref seat.Input;
             var r = new BinaryReader(new MemoryStream(data));
-            _remoteInput.Movement = new Vector2(r.ReadSingle(), r.ReadSingle());
-            _remoteInput.Click = new Vector2(r.ReadSingle(), r.ReadSingle());
-            _remoteInput.Mouse = new Vector2(r.ReadSingle(), r.ReadSingle());
+            input.Movement = new Vector2(r.ReadSingle(), r.ReadSingle());
+            input.Click = new Vector2(r.ReadSingle(), r.ReadSingle());
+            input.Mouse = new Vector2(r.ReadSingle(), r.ReadSingle());
             ushort bits = r.ReadUInt16();
             for (int i = 0; i < 10; i++)
             {
                 bool on = (bits & (1 << i)) != 0;
-                if (i < FirstEventFlag) _remoteInput.Flags[i] = on;
-                else if (on) _remoteInput.Flags[i] = true;
+                if (i < FirstEventFlag) input.Flags[i] = on;
+                else if (on) input.Flags[i] = true;
             }
-            if ((bits >> FirstEventFlag) != 0) _eventsConsumed.Clear();
+            if ((bits >> FirstEventFlag) != 0) seat.EventsConsumed.Clear();
             if (r.ReadBoolean())
             {
-                _clientMainId = r.ReadInt64();
-                _clientPos = new Vector2(r.ReadSingle(), r.ReadSingle());
-                _clientWalking = r.ReadBoolean();
+                seat.MainId = r.ReadInt64();
+                seat.MainPos = new Vector2(r.ReadSingle(), r.ReadSingle());
+                seat.Walking = r.ReadBoolean();
             }
             else
             {
-                _clientMainId = -1;
-                _clientWalking = false;
+                seat.MainId = -1;
+                seat.Walking = false;
             }
         }
 
         public static void HostUpdate()
         {
-            _remote.RemoveWhere(a => a == null || !a.isAlive());
-            if (_remote.Count == 0) return;
-            _lastRemoteTime = Clock.Now;
-            _hostLogTimer -= Time.unscaledDeltaTime;
-            if (_hostLogTimer <= 0f)
+            foreach (Seat seat in _seats.Values)
             {
-                _hostLogTimer = 1f;
-                foreach (Actor a in _remote)
-                    SessionLog.Write("friend's unit " + a.getID() + " at " + a.current_position.x.ToString("0.0") + ":" +
-                                     a.current_position.y.ToString("0.0") + " input " + _remoteInput.Movement);
-            }
-            _statusTimer -= Time.unscaledDeltaTime;
-            bool active = _remoteInput.Movement != Vector2.zero || _remoteInput.Flags[0] || _remoteInput.Flags[1];
-            for (int i = FirstEventFlag; i < 10 && !active; i++) active = _remoteInput.Flags[i];
-            if (active || _statusTimer <= 0f)
-            {
-                _statusTimer = 2f;
-                foreach (Actor a in _remote)
+                seat.Units.RemoveWhere(a => a == null || !a.isAlive());
+                if (seat.Units.Count == 0) continue;
+                seat.LastTime = Clock.Now;
+                seat.LogTimer -= Time.unscaledDeltaTime;
+                if (seat.LogTimer <= 0f)
                 {
-                    AddPossessedStatus(a);
-                    a.stopSleeping();
-                    a.next_step_position = a.next_step_position_possession;
+                    seat.LogTimer = 1f;
+                    foreach (Actor a in seat.Units)
+                        SessionLog.Write(seat.Guest.Label + "'s unit " + a.getID() + " at " + a.current_position.x.ToString("0.0") + ":" +
+                                         a.current_position.y.ToString("0.0") + " input " + seat.Input.Movement);
                 }
+                seat.StatusTimer -= Time.unscaledDeltaTime;
+                bool active = seat.Input.Movement != Vector2.zero || seat.Input.Flags[0] || seat.Input.Flags[1];
+                for (int i = FirstEventFlag; i < 10 && !active; i++) active = seat.Input.Flags[i];
+                if (active || seat.StatusTimer <= 0f)
+                {
+                    seat.StatusTimer = 2f;
+                    foreach (Actor a in seat.Units)
+                    {
+                        AddPossessedStatus(a);
+                        a.stopSleeping();
+                        a.next_step_position = a.next_step_position_possession;
+                    }
+                }
+                HostFollow(seat);
             }
-            HostFollow();
         }
 
-        static void HostFollow()
+        static void HostFollow(Seat seat)
         {
-            if (_clientMainId < 0) return;
-            Actor a = World.world.units.get(_clientMainId);
-            if (a == null || !_remote.Contains(a) || Access.UnderForces(a)) return;
+            if (seat.MainId < 0) return;
+            Actor a = World.world.units.get(seat.MainId);
+            if (a == null || !seat.Units.Contains(a) || Access.UnderForces(a)) return;
             Vector2 cur = a.current_position;
-            Vector2 diff = _clientPos - cur;
+            Vector2 diff = seat.MainPos - cur;
             if (diff.sqrMagnitude < 1e-6f) return;
-            Vector2 pos = diff.sqrMagnitude > 64f ? _clientPos : cur + diff * Mathf.Min(1f, Time.unscaledDeltaTime * 20f);
+            Vector2 pos = diff.sqrMagnitude > 64f ? seat.MainPos : cur + diff * Mathf.Min(1f, Time.unscaledDeltaTime * 20f);
             a.current_position = pos;
             a.next_step_position = pos;
             a.next_step_position_possession = pos;
             Access.DirtyTile(a) = true;
-            if (InputHelpers.mouseSupported) a.checkFlipAgainstTargetPosition(_remoteInput.Mouse);
+            if (InputHelpers.mouseSupported) a.checkFlipAgainstTargetPosition(seat.Input.Mouse);
         }
 
         public static void HostClear()
         {
-            _remote.Clear();
-            _clientMainId = -1;
-            _clientWalking = false;
-            for (int i = 0; i < 10; i++) _remoteInput.Flags[i] = false;
-            _remoteInput.Movement = Vector2.zero;
+            _seats.Clear();
+            _acting = null;
         }
 
         [HarmonyPatch(typeof(ControllableUnit), nameof(ControllableUnit.setControllableCreature))]
@@ -296,14 +341,14 @@ namespace WorldBoxMP
         {
             static void Postfix(Actor pUnit, ref bool __result)
             {
-                if (!__result && _remote.Count > 0 && _remote.Contains(pUnit)) __result = true;
+                if (!__result && _seats.Count > 0 && SeatOf(pUnit) != null) __result = true;
             }
         }
 
         [HarmonyPatch(typeof(ControllableUnit), nameof(ControllableUnit.remove))]
         static class HostForgetsDeadRemoteUnits
         {
-            static void Postfix(Actor pActor) => _remote.Remove(pActor);
+            static void Postfix(Actor pActor) => SeatOf(pActor)?.Units.Remove(pActor);
         }
 
         [HarmonyPatch(typeof(StatusLibrary), "possessedAction")]
@@ -321,32 +366,36 @@ namespace WorldBoxMP
             {
                 __state = default;
                 Actor a = pTarget as Actor;
-                if (a == null || !_remote.Contains(a)) return;
+                Seat seat = SeatOf(a);
+                if (seat == null) return;
                 __state = new Saved { Active = true, Movement = MovementVector(), Click = ClickVector(), Flags = new bool[10], Actor = a };
                 for (int i = 0; i < 10; i++) __state.Flags[i] = Flags[i]();
 
-                MovementVector() = FollowsClient(a) ? Vector2.zero : _remoteInput.Movement;
-                ClickVector() = _remoteInput.Click;
-                bool fresh = _eventsConsumed.Add(a);
+                MovementVector() = FollowsClient(seat, a) ? Vector2.zero : seat.Input.Movement;
+                ClickVector() = seat.Input.Click;
+                bool fresh = seat.EventsConsumed.Add(a);
                 for (int i = 0; i < 10; i++)
-                    Flags[i]() = i < FirstEventFlag ? _remoteInput.Flags[i] : fresh && _remoteInput.Flags[i];
+                    Flags[i]() = i < FirstEventFlag ? seat.Input.Flags[i] : fresh && seat.Input.Flags[i];
+                _acting = seat;
                 _inRemoteAction = true;
             }
 
             static void Finalizer(Saved __state)
             {
                 if (!__state.Active) return;
+                Seat seat = _acting;
                 _inRemoteAction = false;
-                if (FollowsClient(__state.Actor))
+                _acting = null;
+                if (seat != null && FollowsClient(seat, __state.Actor))
                 {
-                    __state.Actor.setPossessedMovement(_clientWalking);
-                    Access.IsMoving(__state.Actor) = _clientWalking;
+                    __state.Actor.setPossessedMovement(seat.Walking);
+                    Access.IsMoving(__state.Actor) = seat.Walking;
                 }
                 MovementVector() = __state.Movement;
                 ClickVector() = __state.Click;
                 for (int i = 0; i < 10; i++) Flags[i]() = __state.Flags[i];
-                if (_eventsConsumed.IsSupersetOf(_remote))
-                    for (int i = FirstEventFlag; i < 10; i++) _remoteInput.Flags[i] = false;
+                if (seat != null && seat.EventsConsumed.IsSupersetOf(seat.Units))
+                    for (int i = FirstEventFlag; i < 10; i++) seat.Input.Flags[i] = false;
             }
         }
 
@@ -355,7 +404,7 @@ namespace WorldBoxMP
         {
             static void Postfix(ref bool __result)
             {
-                if (_inRemoteAction) __result = _remoteInput.Movement != Vector2.zero;
+                if (_inRemoteAction && _acting != null) __result = _acting.Input.Movement != Vector2.zero;
             }
         }
 
@@ -364,7 +413,7 @@ namespace WorldBoxMP
         {
             static void Postfix(ref Vector2 __result)
             {
-                if (_inRemoteAction) __result = _remoteInput.Mouse;
+                if (_inRemoteAction && _acting != null) __result = _acting.Input.Mouse;
             }
         }
     }

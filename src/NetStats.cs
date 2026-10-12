@@ -45,7 +45,7 @@ namespace WorldBoxMP
             Net.Peer.Send(Msg.Ping, BitConverter.GetBytes(Clock.Now));
         }
 
-        public static void OnPing(byte[] data) => Net.Peer?.Send(Msg.Pong, data);
+        public static void OnPing(byte[] data) => Net.Reply(Msg.Pong, data);
 
         public static int LastPingMs => (int)Math.Round(_rttLast);
 
@@ -53,6 +53,7 @@ namespace WorldBoxMP
         {
             if (data == null || data.Length < 8) return;
             double rtt = (Clock.Now - BitConverter.ToDouble(data, 0)) * 1000.0;
+            if (Net.Current != null) Net.Current.PingMs = (int)Math.Round(rtt);
             _rttLast = rtt;
             _rttSum += rtt;
             _rttCount++;

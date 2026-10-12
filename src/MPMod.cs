@@ -117,7 +117,7 @@ namespace WorldBoxMP
             }
             else if (Net.IsHostWithPeer)
             {
-                SendWorld();
+                SendWorldToAll();
                 Tip("tip_world_sent");
             }
             else Tip("tip_not_connected");
@@ -178,10 +178,11 @@ namespace WorldBoxMP
         void HostUpdate()
         {
             bool loading = SmoothLoader.isLoading();
-            if (_hostWasLoading && !loading && Net.IsHostWithPeer) SendWorld();
+            if (_hostWasLoading && !loading && Net.IsHostWithPeer) SendWorldToAll();
             _hostWasLoading = loading;
             HostSync.Update(Cfg.TickMs / 1000f);
             RemotePossession.HostUpdate();
+            RemoteMagnet.HostUpdate();
         }
 
         void ClientUpdate()
@@ -194,6 +195,8 @@ namespace WorldBoxMP
             }
             ClientSync.Update();
             RemotePossession.ClientUpdate();
+            RemoteMagnet.ClientUpdate();
+            RemoteMagnet.ClientBallUpdate();
             PlayerEdits.UpdateClient();
             ViewSync.UpdateClient();
             if (Checksum.Consecutive >= 15 && !_askedResync)
@@ -212,19 +215,41 @@ namespace WorldBoxMP
 
         void PumpNetwork()
         {
-            if (Net.Role == Role.Host && Net.TakeAccepted() is Peer joined)
+            if (Net.Role == Role.Host)
             {
-                Tip("tip_joined", joined.Remote);
-                HostOnly.ResendLaws();
-                ViewSync.Reset();
-                Flow.Reset();
-                _resyncTimer = 0f;
+                while (Net.TakeAccepted() is Peer joined) Lobby.OnConnect(joined);
+                Lobby.HostUpdate();
+                foreach (Guest g in new List<Guest>(Net.Guests))
+                {
+                    g.Peer.Pump();
+                    Net.Current = g;
+                    try
+                    {
+                        for (int i = 0; i < 64 && g.Peer.Inbox.TryDequeue(out var pkt); i++)
+                        {
+                            NetStats.CountIn(pkt);
+                            Handle(pkt);
+                        }
+                    }
+                    finally { Net.Current = null; }
+                    if (g.Peer.Closed && g.Peer.Inbox.IsEmpty && Net.Guests.Contains(g))
+                    {
+                        Lobby.Leave(g);
+                        try { g.Peer.Dispose(); } catch { }
+                        Tip("tip_player_left_named", g.Label);
+                    }
+                }
+                if (Net.IsHostWithPeer && Cfg.ResyncSeconds > 0f && !SmoothLoader.isLoading())
+                {
+                    _resyncTimer += Time.unscaledDeltaTime;
+                    if (_resyncTimer >= Cfg.ResyncSeconds && !RemotePossession.HasRemote) SendWorldToAll();
+                }
+                return;
             }
 
             Peer peer = Net.Peer;
             if (peer == null) return;
             peer.Pump();
-
             for (int i = 0; i < 64 && peer.Inbox.TryDequeue(out var pkt); i++)
             {
                 NetStats.CountIn(pkt);
@@ -234,31 +259,19 @@ namespace WorldBoxMP
             while (_lagged.Count > 0 && _lagged.Peek().Key <= Clock.Now)
                 Handle(_lagged.Dequeue().Value);
 
-            if (peer.Closed && peer.Inbox.IsEmpty)
-            {
-                if (Net.Role == Role.Client)
-                {
-                    _hasWorld = false;
-                    Net.Stop();
-                    Rules.ResetClient();
-                    SessionLog.Stop();
-                    Tip("tip_host_left");
-                    TestHarness.OnClientDropped();
-                }
-                else if (Net.Role == Role.Host)
-                {
-                    RemotePossession.HostReceiveUnpossess();
-                    Net.DropPeer();
-                    Tip("tip_player_left");
-                }
-                return;
-            }
+            if (peer.Closed && peer.Inbox.IsEmpty && Net.Role == Role.Client) LeaveHost("tip_host_left");
+        }
 
-            if (Net.IsHostWithPeer && Cfg.ResyncSeconds > 0f && !SmoothLoader.isLoading())
-            {
-                _resyncTimer += Time.unscaledDeltaTime;
-                if (_resyncTimer >= Cfg.ResyncSeconds && !RemotePossession.HasRemote) SendWorld();
-            }
+        void LeaveHost(string tipKey)
+        {
+            LobbyTest.LastLeave = tipKey;
+            _hasWorld = false;
+            Net.Stop();
+            Rules.ResetClient();
+            Roster.Clear();
+            SessionLog.Stop();
+            Tip(tipKey);
+            TestHarness.OnClientDropped();
         }
 
         void Handle(Packet pkt)
@@ -269,8 +282,27 @@ namespace WorldBoxMP
                     int version = pkt.Data.Length >= 4 ? BitConverter.ToInt32(pkt.Data, 0) : -1;
                     if (version != Net.ProtocolVersion)
                         Tip("tip_version", version, Net.ProtocolVersion);
-                    Rules.Send();
-                    SendWorld();
+                    Guest joined = Net.Current;
+                    joined.Peer.Send(Msg.Welcome, new[] { joined.Slot });
+                    Rules.SendTo(joined);
+                    SendWorldTo(joined);
+                    HostOnly.ResendLaws();
+                    Tip("tip_joined_named", joined.Label);
+                    break;
+                case Msg.Welcome when Net.Role == Role.Client:
+                    Roster.LocalSlot = pkt.Data.Length > 0 ? pkt.Data[0] : (byte)1;
+                    SessionLog.Write("this player is in slot " + Roster.LocalSlot);
+                    break;
+                case Msg.Lobby when Net.Role == Role.Client:
+                    Lobby.ClientReceive(pkt.Data);
+                    break;
+                case Msg.Kicked when Net.Role == Role.Client:
+                    LeaveHost("tip_kicked");
+                    break;
+                case Msg.Refused when Net.Role == Role.Client:
+                    string why = "lobby_full";
+                    try { why = new System.IO.BinaryReader(new System.IO.MemoryStream(pkt.Data)).ReadString(); } catch { }
+                    LeaveHost(why);
                     break;
                 case Msg.Rules when Net.Role == Role.Client:
                     Rules.Receive(pkt.Data);
@@ -285,7 +317,7 @@ namespace WorldBoxMP
                     HostOnly.ClientReceiveUnlock();
                     break;
                 case Msg.Resync when Net.Role == Role.Host:
-                    SendWorld();
+                    SendWorldTo(Net.Current);
                     break;
                 case Msg.Power when Net.Role == Role.Host:
                     Powers.ApplyRemoteClick(pkt.Data);
@@ -328,6 +360,12 @@ namespace WorldBoxMP
                 case Msg.ObjRepair when Net.Role == Role.Host:
                     ObjectRepair.HostResend(pkt.Data);
                     break;
+                case Msg.Magnet when Net.Role == Role.Host:
+                    RemoteMagnet.HostReceive(pkt.Data);
+                    break;
+                case Msg.Boulder when Net.Role == Role.Host:
+                    RemoteMagnet.HostBall(pkt.Data);
+                    break;
                 case Msg.Order when Net.Role == Role.Host:
                     Orders.HostReceive(pkt.Data);
                     break;
@@ -355,15 +393,43 @@ namespace WorldBoxMP
             }
         }
 
-        void SendWorld()
+        static byte[] BuildWorld(out long ms)
         {
-            _resyncTimer = 0f;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             foreach (Actor a in World.world.units) a.getName();
             byte[] bytes = SaveManager.currentWorldToSavedMap().toZip();
-            Net.Peer.Send(Msg.World, bytes);
+            ms = sw.ElapsedMilliseconds;
+            return bytes;
+        }
+
+        void SendWorldTo(Guest g)
+        {
+            if (g == null) return;
+            _resyncTimer = 0f;
+            bool others = false;
+            foreach (Guest o in Net.Guests) if (o != g && o.Ready && !o.Peer.Closed) others = true;
+            byte[] bytes = BuildWorld(out long ms);
+            g.Peer.Send(Msg.World, bytes);
+            g.Ready = true;
+            if (others) HostSync.ResendOncePerObject();
+            else HostSync.ResetAfterSnapshot();
+            Lobby.Changed();
+            Debug.Log("[WorldBoxMP] sent world to " + g.Label + ": " + bytes.Length / 1024 + " KiB, built in " + ms + " ms" + (others ? " (shared stream kept)" : ""));
+        }
+
+        void SendWorldToAll()
+        {
+            _resyncTimer = 0f;
+            byte[] bytes = BuildWorld(out long ms);
+            foreach (Guest g in Net.Guests)
+            {
+                if (g.Peer.Closed) continue;
+                g.Peer.Send(Msg.World, bytes);
+                g.Ready = true;
+            }
             HostSync.ResetAfterSnapshot();
-            Debug.Log("[WorldBoxMP] sent world: " + bytes.Length / 1024 + " KiB, built in " + sw.ElapsedMilliseconds + " ms");
+            Lobby.Changed();
+            Debug.Log("[WorldBoxMP] sent world to everyone: " + bytes.Length / 1024 + " KiB, built in " + ms + " ms");
         }
 
         static void LoadWorld(byte[] bytes)

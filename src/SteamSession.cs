@@ -13,7 +13,7 @@ namespace WorldBoxMP
     {
         static readonly ConcurrentQueue<Action> _mainThread = new ConcurrentQueue<Action>();
         static bool _initDone;
-        static Lobby? _lobby;
+        static Steamworks.Data.Lobby? _lobby;
         static HostSocket _socket;
         static ClientConnection _connection;
         static ulong _pendingLobby;
@@ -85,13 +85,13 @@ namespace WorldBoxMP
                 if (_socket == null) _socket = SteamNetworkingSockets.CreateRelaySocket<HostSocket>(0);
                 if (_lobby == null)
                 {
-                    Lobby? created = await SteamMatchmaking.CreateLobbyAsync(2);
+                    Steamworks.Data.Lobby? created = await SteamMatchmaking.CreateLobbyAsync(1 + Lobby.OpenSlots);
                     if (!created.HasValue)
                     {
                         MPMod.Tip("tip_lobby_failed");
                         return;
                     }
-                    Lobby lobby = created.Value;
+                    Steamworks.Data.Lobby lobby = created.Value;
                     lobby.SetFriendsOnly();
                     lobby.SetJoinable(true);
                     lobby.SetData("wbmp_protocol", Net.ProtocolVersion.ToString());
@@ -115,7 +115,7 @@ namespace WorldBoxMP
             {
                 Net.Stop();
                 SessionLog.Start("client");
-                var lobby = new Lobby(lobbyId);
+                var lobby = new Steamworks.Data.Lobby(lobbyId);
                 RoomEnter entered = await lobby.Join();
                 if (entered != RoomEnter.Success)
                 {
@@ -150,6 +150,29 @@ namespace WorldBoxMP
 
         public static bool LobbyOpen => _lobby.HasValue;
 
+        public static void UpdateLobbySize()
+        {
+            if (!_lobby.HasValue) return;
+            try
+            {
+                Steamworks.Data.Lobby l = _lobby.Value;
+                l.MaxMembers = 1 + Lobby.OpenSlots;
+                l.SetJoinable(Lobby.FreeSlot() != 0);
+            }
+            catch (Exception e) { Debug.Log("[WorldBoxMP] Steam lobby size: " + e.Message); }
+        }
+
+        public static void InviteFriend(ulong steamId)
+        {
+            if (!Available || !_lobby.HasValue) return;
+            try
+            {
+                bool ok = _lobby.Value.InviteFriend(steamId);
+                SessionLog.Write("Steam invite to " + steamId + (ok ? " sent" : " failed"));
+            }
+            catch (Exception e) { Debug.Log("[WorldBoxMP] Steam invite: " + e.Message); }
+        }
+
         public static void Invite()
         {
             if (!Available)
@@ -181,15 +204,14 @@ namespace WorldBoxMP
 
             public override void OnConnecting(Connection connection, ConnectionInfo info)
             {
-                if (Net.IsHostWithPeer) connection.Close();
-                else base.OnConnecting(connection, info);
+                base.OnConnecting(connection, info);
             }
 
             public override void OnConnected(Connection connection, ConnectionInfo info)
             {
                 base.OnConnected(connection, info);
                 string name = new Friend(info.Identity.SteamId).Name;
-                var peer = new SteamPeer(connection, name);
+                var peer = new SteamPeer(connection, name) { SteamId = info.Identity.SteamId };
                 peer.MarkConnected();
                 _peers[connection.Id] = peer;
                 Net.Offer(peer);
@@ -250,6 +272,8 @@ namespace WorldBoxMP
 
         public override bool Closed => _closed;
         public override string Remote => _name + " (Steam)";
+        public ulong SteamId;
+        public override string BanKey => SteamId != 0 ? "steam:" + SteamId : null;
 
         public void MarkConnected() => _connected = true;
 

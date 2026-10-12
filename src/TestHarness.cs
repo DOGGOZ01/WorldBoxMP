@@ -85,6 +85,8 @@ namespace WorldBoxMP
                     case "-wbmpspecial": _specialTest = true; break;
                     case "-wbmprules": RulesTest.On = true; break;
                     case "-wbmprules2": RulesTest2.On = true; break;
+                    case "-wbmplobby": LobbyTest.On = true; break;
+                    case "-wbmpfix": FixTest.On = true; break;
                     case "-wbmpday": _dayTest = float.Parse(next, System.Globalization.CultureInfo.InvariantCulture); break;
                     case "-wbmpwindow": _windowTest = true; break;
                     case "-wbmpsprites": _dumpSprites = true; break;
@@ -314,7 +316,7 @@ namespace WorldBoxMP
                 ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(_uiFolder ?? ".", "ui_open.png"));
             if (before < 20f && _uiClock >= 20f)
                 ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(_uiFolder ?? ".", "ui_open2.png"));
-            if (before < 30f && _uiClock >= 30f && Net.Role == Role.Host && (RulesTest.On || RulesTest2.On)) RulesWindow.Open();
+            if (before < 30f && _uiClock >= 30f && Net.Role == Role.Host && (RulesTest.On || RulesTest2.On)) RulesWindow.Open(null);
             if (before < 42f && _uiClock >= 42f && Net.Role == Role.Host && RulesTest2.On) PowerRulesWindow.Open(Perm.Creatures);
             if (before < 48f && _uiClock >= 48f)
                 ScreenCapture.CaptureScreenshot(System.IO.Path.Combine(_uiFolder ?? ".", "ui_open4.png"));
@@ -406,6 +408,8 @@ namespace WorldBoxMP
             SpecialTest(dt);
             RulesTest.Update(dt);
             RulesTest2.Update(dt);
+            LobbyTest.Update(dt);
+            FixTest.Update(dt);
             DayTest(dt);
             WindowTest(dt);
             if (_eraTest != null && Net.IsHostWithPeer)

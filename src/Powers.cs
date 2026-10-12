@@ -19,15 +19,21 @@ namespace WorldBoxMP
             AccessTools.MethodDelegate<System.Action<PlayerControl, Vector2Int, GodPower, bool>>(
                 AccessTools.Method(typeof(PlayerControl), "clickedFinal"));
 
-        static WorldTile _remoteFirstTile;
-        static TileType _remoteFirstType;
-        static TopTileType _remoteFirstTopType;
-        static float _remoteTimer = -1f;
-        static float _lastRemoteClick = -10f;
+        class Stroke
+        {
+            public WorldTile FirstTile;
+            public TileType FirstType;
+            public TopTileType FirstTopType;
+            public float Timer = -1f;
+            public float LastClick = -10f;
+        }
+        static readonly System.Collections.Generic.Dictionary<byte, Stroke> _strokes = new System.Collections.Generic.Dictionary<byte, Stroke>();
         static float _lastDenied = -10f;
         const float StrokeGap = 0.25f;
 
         public static int SentCount;
+
+        public static readonly System.Collections.Generic.Dictionary<byte, int> AppliedBySlot = new System.Collections.Generic.Dictionary<byte, int>();
 
         public static void SendClick(Vector2Int pos, GodPower power)
         {
@@ -68,14 +74,16 @@ namespace WorldBoxMP
             ActorAsset spawned = AssetManager.actor_library.get(id);
             if (spawned != null && spawned.skip_save) SpecialActors.ExpectFriendCreature(id);
 
-            if (Time.unscaledTime - _lastRemoteClick > StrokeGap)
+            byte slot = Net.Current != null ? Net.Current.Slot : (byte)1;
+            if (!_strokes.TryGetValue(slot, out Stroke stroke)) _strokes[slot] = stroke = new Stroke();
+            if (Time.unscaledTime - stroke.LastClick > StrokeGap)
             {
-                _remoteFirstTile = null;
-                _remoteFirstType = null;
-                _remoteFirstTopType = null;
-                _remoteTimer = -1f;
+                stroke.FirstTile = null;
+                stroke.FirstType = null;
+                stroke.FirstTopType = null;
+                stroke.Timer = -1f;
             }
-            _lastRemoteClick = Time.unscaledTime;
+            stroke.LastClick = Time.unscaledTime;
 
             PlayerControl pc = World.world.player_control;
             string hostBrush = Config.current_brush;
@@ -87,18 +95,23 @@ namespace WorldBoxMP
             try
             {
                 if (!string.IsNullOrEmpty(brush)) Config.current_brush = brush;
-                ClickTimer(pc) = _remoteTimer;
-                FirstTile(pc) = _remoteFirstTile;
-                FirstType(pc) = _remoteFirstType;
-                FirstTopType(pc) = _remoteFirstTopType;
+                ClickTimer(pc) = stroke.Timer;
+                FirstTile(pc) = stroke.FirstTile;
+                FirstType(pc) = stroke.FirstType;
+                FirstTopType(pc) = stroke.FirstTopType;
 
                 ClickedFinal(pc, new Vector2Int(x, y), power, true);
                 Debug.Log("[WorldBoxMP] remote power " + id + " at " + x + ":" + y);
+                if (Net.Current != null)
+                {
+                    AppliedBySlot.TryGetValue(Net.Current.Slot, out int n);
+                    AppliedBySlot[Net.Current.Slot] = n + 1;
+                }
 
-                _remoteTimer = ClickTimer(pc);
-                _remoteFirstTile = FirstTile(pc);
-                _remoteFirstType = FirstType(pc);
-                _remoteFirstTopType = FirstTopType(pc);
+                stroke.Timer = ClickTimer(pc);
+                stroke.FirstTile = FirstTile(pc);
+                stroke.FirstType = FirstType(pc);
+                stroke.FirstTopType = FirstTopType(pc);
             }
             finally
             {

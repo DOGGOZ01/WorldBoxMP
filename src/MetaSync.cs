@@ -589,6 +589,12 @@ namespace WorldBoxMP
                 if (slot.getItem() == item) slot.takeAwayItem();
         }
 
+        public static void ResendKingdomsAndCities()
+        {
+            Kingdoms.ForceResendAll();
+            Cities.ForceResendAll();
+        }
+
         public static void ResetAfterSnapshot()
         {
             foreach (IChannel c in Channels) c.Snapshot();

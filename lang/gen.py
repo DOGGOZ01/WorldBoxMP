@@ -6,9 +6,10 @@ sys.path.insert(0, __file__.rsplit("\\", 1)[0] if "\\" in __file__ else ".")
 from strings import KEYS, L
 import strings_rules
 import strings_powers
+import strings_lobby
 
 # later tables add keys at the end of every language's row
-for _more in (strings_rules, strings_powers):
+for _more in (strings_rules, strings_powers, strings_lobby):
     KEYS = KEYS + _more.KEYS
     L = {lang: rows + _more.L.get(lang, []) for lang, rows in L.items()}
 
