@@ -30,6 +30,14 @@ namespace WorldBoxMP
 
         static Vector2Int Center => new Vector2Int(MapBox.width / 2, MapBox.height / 2);
 
+        static long _uId = -1;
+
+        static Actor HeldByPlayer()
+        {
+            foreach (Actor a in World.world.units) if (a.isAlive() && RemotePossession.IsRemote(a)) return a;
+            return null;
+        }
+
         static Actor Pick(int index)
         {
             var list = new List<Actor>();
@@ -137,10 +145,11 @@ namespace WorldBoxMP
                 ControllableUnit.clear();
                 Debug.Log("[WorldBoxMP] test: rules host released T");
             }
-            if (_clock > 62f && !_uChecked && Pick(1) != null && RemotePossession.IsRemote(Pick(1)))
+            if (_clock > 62f && !_uChecked && HeldByPlayer() != null)
             {
                 _uChecked = true;
-                Actor U = Pick(1);
+                Actor U = HeldByPlayer();
+                _uId = U.getID();
                 Check("host: second player holds U", RemotePossession.IsRemote(U), U?.getID().ToString());
                 ControllableUnit.setControllableCreature(U);
                 Check("host: host cannot take U", !RemotePossession.HostControls(U));
@@ -159,7 +168,7 @@ namespace WorldBoxMP
             if (_possessOff && _clock >= _offPossessAt + 6f && _offPossessAt > 0f)
             {
                 _offPossessAt = -1f;
-                Check("host: U let go after possession was turned off", !RemotePossession.IsRemote(Pick(1)));
+                Check("host: U let go after possession was turned off", !RemotePossession.IsRemote(World.world.units.get(_uId)));
                 Rules.Toggle(Perm.Possess);
             }
             if (At(170f)) { if (!_uChecked) Check("host: second player holds U", false, "never"); Debug.Log("[WorldBoxMP] test: rules host done"); }

@@ -27,6 +27,8 @@ namespace WorldBoxMP
         static bool _inEffectUpdate;
         static bool _replaying;
 
+        public static int SlashesShown, UnseenSlashes;
+
         static bool Recording => Net.IsHostWithPeer && HostSync.Tracking && !_inEffectUpdate && !_replaying;
 
         static void Record(Fx fx)
@@ -156,6 +158,7 @@ namespace WorldBoxMP
                                 EffectsLibrary.spawnExplosionWave(new Vector3(x, y), f1, f2);
                                 break;
                             case Kind.Slash:
+                                SlashesShown++;
                                 EffectsLibrary.spawnSlash(new Vector2(x, y), p1, f1, f2);
                                 break;
                             case Kind.HitFlash:
@@ -297,6 +300,37 @@ namespace WorldBoxMP
                 Record(new Fx { Kind = Kind.ExplosionWave, Id = "fx_explosion_wave", X = pVec.x, Y = pVec.y, F1 = pRadius, F2 = pSpeed, Tile = -1 });
             }
             static void Finalizer() => _depth--;
+        }
+
+        [HarmonyPatch(typeof(Actor), nameof(Actor.spawnSlash))]
+        static class CaptureUnseenSlash
+        {
+            static readonly AccessTools.FieldRef<Actor, EquipmentAsset> AttackAsset = AccessTools.FieldRefAccess<Actor, EquipmentAsset>("_attack_asset");
+            static readonly AccessTools.FieldRef<Actor, float> ActorScale = AccessTools.FieldRefAccess<Actor, float>("actor_scale");
+
+            static void Prefix(Actor __instance, Vector2 pTowardsPosition, string pSlashType, float pDistMod, float pTargetZ, float pStartZ, float? pAngle) =>
+                RecordUnseen(__instance, pTowardsPosition, pSlashType, pDistMod, pTargetZ, pStartZ, pAngle);
+
+            public static void RecordUnseen(Actor a, Vector2 towards, string slashType, float distMod, float targetZ, float startZ, float? angle)
+            {
+                if (!Recording || a == null || Access.IsVisible(a) || ViewSync.Priority(a.current_position) != 0) return;
+                string type = string.IsNullOrEmpty(slashType) ? AttackAsset(a)?.path_slash_animation : slashType;
+                if (string.IsNullOrEmpty(type)) return;
+                Vector2 pos = a.getSlashPosition(a, towards, distMod, targetZ, startZ);
+                float rot = angle ?? a.getSlashAngle(pos, towards);
+                UnseenSlashes++;
+                RecordDirect(new Fx { Kind = Kind.Slash, Id = "fx_slash", P1 = type, X = pos.x, Y = pos.y, F1 = rot, F2 = ActorScale(a), Tile = -1 });
+            }
+        }
+
+        [HarmonyPatch(typeof(CombatActionLibrary), nameof(CombatActionLibrary.attackMeleeAction))]
+        static class CaptureUnseenMeleeSlash
+        {
+            static void Postfix(AttackData pData)
+            {
+                Actor a = pData.initiator as Actor;
+                if (a != null && !Access.IsVisible(a)) CaptureUnseenSlash.RecordUnseen(a, pData.hit_position, null, 2f, 0f, 0f, null);
+            }
         }
 
         [HarmonyPatch(typeof(EffectsLibrary), nameof(EffectsLibrary.spawnSlash))]

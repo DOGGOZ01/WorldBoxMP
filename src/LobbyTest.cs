@@ -22,6 +22,27 @@ namespace WorldBoxMP
         static bool _counted;
         static bool _shot;
         static float _lobbyAt = -1f;
+        static string _password;
+        static bool _enterNext;
+
+        static readonly System.Action<SaveManager> StartLoad =
+            HarmonyLib.AccessTools.MethodDelegate<System.Action<SaveManager>>(HarmonyLib.AccessTools.Method(typeof(SaveManager), "startLoadSlot"));
+
+        static bool Said(byte slot, string text)
+        {
+            foreach (Chat.Line l in Chat.Lines) if (l.Slot == slot && l.Text == text) return true;
+            return false;
+        }
+
+        static void TryWorlds(string who)
+        {
+            int before = SessionLock.Refused;
+            SaveManager.setCurrentSlot(1);
+            StartLoad(HarmonyLib.AccessTools.FieldRefAccess<MapBox, SaveManager>("save_manager")(World.world));
+            World.world.clickGenerateNewMap();
+            Check(who + ": no load or new world in the lobby", SessionLock.Refused == before + 2 && !SmoothLoader.isLoading() && Net.Role != Role.None,
+                (SessionLock.Refused - before) + " refused");
+        }
 
         static int Count(string asset)
         {
@@ -83,6 +104,17 @@ namespace WorldBoxMP
             {
                 LobbyWindow.Open();
             }
+            if (At(26f))
+            {
+                Chat.Send("hello from host");
+                MapPings.Place(new Vector2(MapBox.width / 2f, MapBox.height / 2f));
+            }
+            if (At(40f))
+            {
+                Check("host: chat from slot 1", Said(1, "hello from 1"));
+                Check("host: ping from slot 2", MapPings.Seen.Contains(2), MapPings.Seen.Count + " slots");
+            }
+            if (At(42f)) TryWorlds("host");
             if (At(27f))
             {
                 ScreenCapture.CaptureScreenshot(Path.Combine(TestHarness.UiFolder, "lobby_host.png"));
@@ -122,6 +154,12 @@ namespace WorldBoxMP
 
         static void Player(float dt)
         {
+            if (_enterNext)
+            {
+                _enterNext = false;
+                PasswordWindow.Enter(_password);
+                return;
+            }
             if (!Net.IsClientConnected && Net.Role == Role.None && _phase >= 1 && Roster.LocalSlot == 0 && LastLeave != null)
             {
                 _retryTimer -= dt;
@@ -129,8 +167,19 @@ namespace WorldBoxMP
                 _retryTimer = 6f;
                 _attempts.Add(LastLeave);
                 Debug.Log("[WorldBoxMP] test: lobby player 3: left (" + LastLeave + "), joining again");
+                if (LastLeave == "wrong_password")
+                {
+                    LastLeave = null;
+                    Check("player 3: asked for the password", PasswordWindow.Pending);
+                    ScreenCapture.CaptureScreenshot(Path.Combine(TestHarness.UiFolder, "password.png"));
+                    _enterNext = true;
+                    return;
+                }
                 LastLeave = null;
-                if (_attempts.Count > 12) { Report(); return; }
+                if (_attempts.Count > 14) { Report(); return; }
+                if (_password == null) _password = Net.JoinPassword;
+                bool wrong = _attempts.Contains("lobby_full") && !_attempts.Contains("wrong_password");
+                Net.JoinPassword = wrong ? "not-" + _password : _password;
                 MPMod.Instance.Join();
                 return;
             }
@@ -182,6 +231,15 @@ namespace WorldBoxMP
             }
             if (Roster.LocalSlot == 1 && At(34f))
                 Check("player 1: still holds X", ControllableUnit.isControllingUnit(Pick(0)));
+            if (Roster.LocalSlot == 1 && At(26f)) Chat.Send("hello from 1");
+            if (Roster.LocalSlot == 2 && At(26f)) MapPings.Place(new Vector2(MapBox.width / 2f + 5f, MapBox.height / 2f));
+            if ((Roster.LocalSlot == 1 || Roster.LocalSlot == 2) && At(40f))
+            {
+                Check("player " + Roster.LocalSlot + ": chat from the host and slot 1", Said(0, "hello from host") && Said(1, "hello from 1"), Chat.Lines.Count.ToString());
+                Check("player " + Roster.LocalSlot + ": the host's ping", MapPings.Seen.Contains(0));
+                if (Roster.LocalSlot == 1) Check("player 1: slot 2's ping", MapPings.Seen.Contains(2));
+            }
+            if (Roster.LocalSlot == 1 && At(44f)) TryWorlds("player 1");
             if (Roster.LocalSlot == 3 && _clock > 25f) _phase = 2;
             if (Roster.LocalSlot != 3 && At(80f))
             {
@@ -198,6 +256,7 @@ namespace WorldBoxMP
             Check("player 3: removed", _attempts.Count > 0 && _attempts[0] == "tip_kicked", seen);
             Check("player 3: could not come back on its own", _attempts.Contains("lobby_kicked"), seen);
             Check("player 3: no free slot while closed", _attempts.Contains("lobby_full"), seen);
+            Check("player 3: a wrong password refused", _attempts.Contains("wrong_password"), seen);
             Check("player 3: back after the invite", Net.IsClientConnected && Roster.LocalSlot == 3, seen);
             Debug.Log("[WorldBoxMP] test: lobby player 3 done");
             _done = true;

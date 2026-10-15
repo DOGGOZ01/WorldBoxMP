@@ -12,6 +12,13 @@ namespace WorldBoxMP
         static readonly AccessTools.FieldRef<DropManager, int> ActiveDrops =
             AccessTools.FieldRefAccess<DropManager, int>("_activeIndex");
 
+        public static int CountEffects()
+        {
+            int n = 0;
+            foreach (BaseEffectController c in Controllers(Access.StackEffects(World.world))) n += c.getActiveIndex();
+            return n;
+        }
+
         public static string Line()
         {
             MapBox w = World.world;

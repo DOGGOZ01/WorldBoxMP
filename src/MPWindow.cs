@@ -11,20 +11,17 @@ namespace WorldBoxMP
     public class MPWindow : SingleAutoLayoutWindow<MPWindow>
     {
         const float Width = 190f;
-        enum View { Offline, Connecting, Hosting, Client }
+        enum View { Offline, Connecting, Online }
 
         LocalizedText _state, _detail;
         Image _stateIcon;
-        GameObject _offline, _connecting, _hosting, _client;
-        LocalizedText _offList;
-        string _offShown;
-        TextInput _ip;
+        GameObject _offline, _connecting, _online;
         View _shown = (View)(-1);
         float _timer;
 
         public static void Open()
         {
-            if (Instance == null) CreateWindow("wbmp_window", Lang.Id("tab"));
+            if (Instance == null) CreateWindow("wbmp_window", Lang.Id("btn_mp"));
             if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
             ScrollWindow.showWindow("wbmp_window");
         }
@@ -47,48 +44,26 @@ namespace WorldBoxMP
             ((RectTransform)logs.transform).anchoredPosition = new Vector2(Width / 2f - 17f, 0f);
 
             _offline = Ui.Group(transform, Width);
-            Ui.Button(_offline.transform, "host", "host", true, () => MPMod.Instance.Host(), Width);
-            Ui.Button(_offline.transform, "on", "players_can", false, () => RulesWindow.Open(null), Width);
-            Ui.Button(_offline.transform, "key", "unlock_all", false, HostOnly.UnlockEverything, Width);
-            Ui.Hint(_offline.transform, "hint_host", Width);
+            Ui.Button(_offline.transform, "host", "create_lobby", true, CreateLobby, Width);
+            Ui.Hint(_offline.transform, "hint_create", Width);
             Ui.Separator(_offline.transform, Width);
-            Ui.Label(_offline.transform, Lang.Id("join_ip"), 9, Ui.Gold, new Vector2(Width, 14f), TextAnchor.MiddleCenter);
-            _ip = TextInput.Instantiate(_offline.transform, pName: "wbmp_ip");
-            _ip.Setup(MPMod.Cfg.HostIp + ":" + MPMod.Cfg.Port, SetAddress);
-            _ip.SetSize(new Vector2(Width - 10f, 18f));
-            _ip.input.textComponent.fontSize = 9;
-            _ip.input.textComponent.resizeTextForBestFit = false;
-            _ip.input.textComponent.alignment = TextAnchor.MiddleLeft;
-            Ui.Button(_offline.transform, "join", "join", false, Join, Width);
-            Ui.Hint(_offline.transform, "hint_steam_join", Width);
+            Ui.Button(_offline.transform, "join", "find_lobbies", true, BrowserWindow.Open, Width);
+            Ui.Hint(_offline.transform, "hint_find", Width);
 
             _connecting = Ui.Group(transform, Width);
-            Ui.Button(_connecting.transform, "leave", "disconnect", false, () => MPMod.Instance.StopSession(), Width);
+            Ui.Button(_connecting.transform, "leave", "btn_exit", false, () => MPMod.Instance.ExitLobby(), Width);
 
-            _hosting = Ui.Group(transform, Width);
-            Ui.Button(_hosting.transform, "invite", "invite", true, SteamSession.Invite, Width);
-            Ui.Hint(_hosting.transform, "hint_invite", Width);
-            Ui.Button(_hosting.transform, "tab", "lobby", false, LobbyWindow.Open, Width);
-            Ui.Button(_hosting.transform, "on", "players_can", false, () => RulesWindow.Open(null), Width);
-            Ui.Button(_hosting.transform, "key", "unlock_all", false, HostOnly.UnlockEverything, Width);
-            Ui.Button(_hosting.transform, "reload", "resync", false, () => MPMod.Instance.Resync(), Width);
-            Ui.Button(_hosting.transform, "leave", "stop_host", false, () => MPMod.Instance.StopSession(), Width);
-
-            _client = Ui.Group(transform, Width);
-            Ui.Button(_client.transform, "tab", "lobby", false, LobbyWindow.Open, Width);
-            Ui.Button(_client.transform, "reload", "resync", false, () => MPMod.Instance.Resync(), Width);
-            Ui.Button(_client.transform, "leave", "disconnect", false, () => MPMod.Instance.StopSession(), Width);
-            _offList = Ui.Hint(_client.transform, "live_empty", Width);
-            _offList.GetComponent<Text>().color = Ui.Gold;
+            _online = Ui.Group(transform, Width);
+            Ui.Button(_online.transform, "tab", "btn_settings", true, LobbyWindow.Open, Width);
+            Ui.Button(_online.transform, "leave", "btn_exit", false, () => MPMod.Instance.ExitLobby(), Width);
+            Ui.Hint(_online.transform, "hint_keys", Width);
 
             Refresh(true);
         }
 
-        public override void OnNormalEnable()
-        {
-            if (_ip != null) _ip.input.text = MPMod.Cfg.HostIp + ":" + MPMod.Cfg.Port;
-            Refresh(true);
-        }
+        public static void CreateLobby() => LobbyWindow.OpenSetup();
+
+        public override void OnNormalEnable() => Refresh(true);
 
         void Update()
         {
@@ -101,8 +76,7 @@ namespace WorldBoxMP
         void Refresh(bool force)
         {
             _timer = 0.25f;
-            View view = Net.IsHostWithPeer || Net.Role == Role.Host ? View.Hosting
-                : Net.IsClientConnected && ClientConnectedAndLoaded() ? View.Client
+            View view = Net.Role == Role.Host || Net.IsClientConnected && !SmoothLoader.isLoading() ? View.Online
                 : Net.Role == Role.Client ? View.Connecting
                 : View.Offline;
             if (view != _shown || force)
@@ -110,34 +84,151 @@ namespace WorldBoxMP
                 _shown = view;
                 _offline.SetActive(view == View.Offline);
                 _connecting.SetActive(view == View.Connecting);
-                _hosting.SetActive(view == View.Hosting);
-                _client.SetActive(view == View.Client);
-                _stateIcon.sprite = Icons.Get(view == View.Hosting ? "host" : view == View.Offline ? "tab" : "join");
-            }
-            if (view == View.Client)
-            {
-                string off = Rules.OffList();
-                Lang.Live(_offList, "window_off", off);
-                if (off != _offShown)
-                {
-                    _offShown = off;
-                    Canvas.ForceUpdateCanvases();
-                    LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_offList.transform);
-                    LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_client.transform);
-                    LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)transform);
-                }
+                _online.SetActive(view == View.Online);
+                _stateIcon.sprite = Icons.Get(Net.Role == Role.Host ? "host" : view == View.Offline ? "tab" : "join");
             }
             Lang.Live(_state, "window_state", SessionStatus.State());
             string detail = SessionStatus.Detail();
             Lang.Live(_detail, "window_detail", detail);
             ((RectTransform)_state.transform).anchoredPosition = new Vector2(4f, detail.Length > 0 ? 6f : 0f);
         }
+    }
 
-        static bool ClientConnectedAndLoaded() => !SmoothLoader.isLoading();
+    public class BrowserWindow : SingleAutoLayoutWindow<BrowserWindow>
+    {
+        const float Width = 190f;
+        RectTransform _list;
+        LocalizedText _status;
+        TextInput _code, _ip;
+        bool _searching;
+        float _autoRefresh;
+        public static int FakeLobbies;
 
-        static void SetAddress(string text)
+        public static void Open()
         {
-            string ip = (text ?? "").Trim();
+            if (Instance == null) CreateWindow("wbmp_browser", Lang.Id("browser"));
+            if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
+            ScrollWindow.showWindow("wbmp_browser");
+            Instance.Search();
+        }
+
+        protected override void Init()
+        {
+            layout.spacing = 4f;
+            layout.padding = new RectOffset(0, 0, 8, 10);
+
+            Ui.Label(transform, Lang.Id("join_code"), 8, Ui.Gold, new Vector2(Width, 12f), TextAnchor.MiddleCenter);
+            RectTransform codeRow = Ui.Row(transform, Width, 20f);
+            _code = Ui.Input(codeRow, "", Width - 66f, null);
+            Ui.TextButton(codeRow, "join", () => SteamSession.JoinByCode(_code.input.text, ""), 58f, 18f);
+
+            Ui.Label(transform, Lang.Id("join_ip"), 8, Ui.Gold, new Vector2(Width, 12f), TextAnchor.MiddleCenter);
+            RectTransform ipRow = Ui.Row(transform, Width, 20f);
+            _ip = Ui.Input(ipRow, MPMod.Cfg.HostIp + ":" + MPMod.Cfg.Port, Width - 66f, null);
+            Ui.TextButton(ipRow, "join", JoinIp, 58f, 18f);
+
+            Ui.Separator(transform, Width);
+            RectTransform top = Ui.Row(transform, Width, 20f);
+            Ui.TextButton(top, "refresh", Search, 70f, 18f);
+            _status = Ui.Label(top, null, 8, Ui.Pale, new Vector2(Width - 76f, 18f), TextAnchor.MiddleLeft);
+
+            _list = Ui.Group(transform, Width).GetComponent<RectTransform>();
+            _list.GetComponent<VerticalLayoutGroup>().spacing = 3f;
+        }
+
+        public override void OnNormalEnable()
+        {
+            if (_ip != null) _ip.input.text = MPMod.Cfg.HostIp + ":" + MPMod.Cfg.Port;
+        }
+
+        void Update()
+        {
+            if (!IsOpened || _searching) return;
+            _autoRefresh -= Time.unscaledDeltaTime;
+            if (_autoRefresh <= 0f) Search();
+        }
+
+        void Search()
+        {
+            _autoRefresh = 30f;
+            if (FakeLobbies > 0) { Show(Fake(FakeLobbies)); return; }
+            if (!SteamSession.Available)
+            {
+                Lang.Live(_status, "browser_status", Lang.T("tip_no_steam"));
+                return;
+            }
+            if (_searching) return;
+            _searching = true;
+            Lang.Live(_status, "browser_status", Lang.T("searching"));
+            SteamSession.Search(Show);
+        }
+
+        static List<LobbyEntry> Fake(int n)
+        {
+            var list = new List<LobbyEntry>();
+            string[] sizes = { "standard", "large", "huge", "titanic", "small" };
+            for (int i = 0; i < n; i++)
+                list.Add(new LobbyEntry
+                {
+                    Id = (ulong)(i + 1), Host = i % 4 == 0 ? "AVeryLongSteamNicknameNumber" + i : "Player " + i, Players = 1 + i % 4, Slots = 4,
+                    Locked = i % 3 == 1, Mods = i % 5 == 2, SameVersion = i % 7 != 6, Friend = i < 2, Size = sizes[i % sizes.Length], Year = 10 + i * 37,
+                });
+            return list;
+        }
+
+        void Show(List<LobbyEntry> found)
+        {
+            _searching = false;
+            if (_list == null) return;
+            Ui.Clear(_list);
+            Lang.Live(_status, "browser_status", found.Count == 0 ? Lang.T("no_lobbies") : found.Count.ToString());
+            for (int i = 0; i < found.Count && i < 30; i++) Row(found[i], i);
+            Ui.Relayout(_list, transform);
+        }
+
+        void Row(LobbyEntry e, int index)
+        {
+            bool full = e.Players >= e.Slots;
+            bool canJoin = e.SameVersion && !full;
+            RectTransform row = Ui.Panel(_list, new Vector2(Width, 34f));
+            const float textW = Width - 70f;
+            float left = -Width / 2f + 6f;
+            int marks = (e.Locked ? 1 : 0) + (e.Mods ? 1 : 0);
+            float nameW = textW - marks * 14f;
+            LocalizedText name = Ui.Label(row, null, 9, e.Friend ? Ui.Gold : Color.white, new Vector2(nameW, 15f), TextAnchor.MiddleLeft);
+            ((RectTransform)name.transform).anchoredPosition = new Vector2(left + nameW / 2f, 7f);
+            Lang.Live(name, "browser_name_" + index, Ui.Fit(e.Host, 18));
+            float x = left + nameW + 7f;
+            if (e.Locked) { Ui.Mark(row, "lock", "has_password", new Vector2(x, 7f)); x += 14f; }
+            if (e.Mods) Ui.Mark(row, "mods", "other_mods", new Vector2(x, 7f));
+            LocalizedText detail = Ui.Label(row, null, 7, e.SameVersion ? Ui.Pale : new Color(1f, 0.5f, 0.45f), new Vector2(textW, 12f), TextAnchor.MiddleLeft);
+            ((RectTransform)detail.transform).anchoredPosition = new Vector2(left + textW / 2f, -8f);
+            Lang.Live(detail, "browser_detail_" + index, e.SameVersion
+                ? Lang.T("lobby_line", e.Players, e.Slots, SizeName(e.Size), e.Year >= 0 ? e.Year.ToString() : "?")
+                : Lang.T("other_version"));
+            ulong id = e.Id;
+            if (canJoin)
+            {
+                Button join = Ui.TextButton(row, "join", () => SteamSession.Join(id, ""), 58f, 22f);
+                ((RectTransform)join.transform).anchoredPosition = new Vector2(Width / 2f - 33f, 0f);
+            }
+            else if (full && e.SameVersion)
+            {
+                LocalizedText none = Ui.Label(row, Lang.Id("lobby_full"), 7, new Color(1f, 0.6f, 0.45f), new Vector2(58f, 22f), TextAnchor.MiddleCenter);
+                ((RectTransform)none.transform).anchoredPosition = new Vector2(Width / 2f - 33f, 0f);
+            }
+        }
+
+        static string SizeName(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "?";
+            string key = "map_size_" + id;
+            return LocalizedTextManager.stringExists(key) ? LocalizedTextManager.getText(key) : id;
+        }
+
+        void JoinIp()
+        {
+            string ip = (_ip.input.text ?? "").Trim();
             int port = MPMod.Cfg.Port;
             int colon = ip.LastIndexOf(':');
             if (colon > 0 && ip.IndexOf(':') == colon && int.TryParse(ip.Substring(colon + 1), out int p) && p > 0 && p < 65536)
@@ -147,12 +238,25 @@ namespace WorldBoxMP
             }
             if (ip.Length == 0) return;
             MPMod.SaveAddress(ip, port);
+            Net.JoinPassword = "";
+            MPMod.Instance.Join();
         }
 
-        void Join()
+        public static bool TestLayout(out float fieldsBottom, out float listTop, out int rows)
         {
-            SetAddress(_ip.input.text);
-            MPMod.Instance.Join();
+            fieldsBottom = listTop = 0f;
+            rows = 0;
+            if (Instance == null || Instance._list == null) return false;
+            fieldsBottom = Ui.WorldRect((RectTransform)Instance._ip.transform).yMin;
+            rows = Instance._list.childCount;
+            if (rows > 0) listTop = Ui.WorldRect((RectTransform)Instance._list.GetChild(0)).yMax;
+            return true;
+        }
+
+        public static void TestScroll(float normalized)
+        {
+            ScrollRect sr = Instance != null ? Instance.GetComponentInParent<ScrollRect>() : null;
+            if (sr != null) sr.verticalNormalizedPosition = normalized;
         }
     }
 
@@ -273,7 +377,7 @@ namespace WorldBoxMP
             ScrollWindowComponent.titleText.GetComponent<LocalizedText>()?.setKeyAndUpdate(Lang.Id(Rules.Key(_perm)));
             foreach (var kv in _filterButtons)
                 kv.Value.sprite = SpriteTextureLoader.getSprite(kv.Key == _filter ? "ui/special/special_buttonRed" : "ui/special/special_buttonGray");
-            for (int i = _grid.childCount - 1; i >= 0; i--) Destroy(_grid.GetChild(i).gameObject);
+            Ui.Clear(_grid);
             List<GodPower> powers = Rules.PowersOf(_perm);
             int allowed = 0;
             foreach (GodPower gp in powers)
@@ -295,37 +399,72 @@ namespace WorldBoxMP
     {
         const float Width = 190f;
         RectTransform _list;
-        string _shown;
+        GameObject _hostBox, _setupBox, _codeRow, _invite;
+        LocalizedText _code;
+        TextInput _password;
+        readonly Image[] _visButtons = new Image[3];
+        string _shown, _hostShown;
         float _timer;
+        static bool _setup;
 
         public static void Open()
         {
-            if (Instance == null) CreateWindow("wbmp_lobby", Lang.Id("lobby"));
+            _setup = false;
+            Show();
+        }
+
+        public static void OpenSetup()
+        {
+            _setup = Net.Role == Role.None;
+            Show();
+        }
+
+        static void Show()
+        {
+            if (Instance == null) CreateWindow("wbmp_lobby", Lang.Id("btn_settings"));
             if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
             ScrollWindow.showWindow("wbmp_lobby");
             Instance._shown = null;
+            Instance._hostShown = null;
             Instance.Rebuild();
         }
+
+        static bool InSetup => _setup && Net.Role == Role.None;
 
         protected override void Init()
         {
             layout.spacing = 5f;
             layout.padding = new RectOffset(0, 0, 8, 10);
-            var go = new GameObject("list", typeof(RectTransform));
-            go.transform.SetParent(transform, false);
-            _list = (RectTransform)go.transform;
-            _list.sizeDelta = new Vector2(Width, 10f);
-            var v = go.AddComponent<VerticalLayoutGroup>();
-            v.spacing = 4f;
-            v.childAlignment = TextAnchor.UpperCenter;
-            v.childControlWidth = false;
-            v.childControlHeight = false;
-            v.childForceExpandWidth = false;
-            v.childForceExpandHeight = false;
-            go.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            _setupBox = Ui.Group(transform, Width);
+            Ui.Hint(_setupBox.transform, "setup_hint", Width);
+            Ui.Button(_setupBox.transform, "host", "open_lobby", true, OpenLobby, Width);
+
+            _hostBox = Ui.Group(transform, Width);
+            _codeRow = Ui.Row(_hostBox.transform, Width, 20f).gameObject;
+            _code = Ui.Label(_codeRow.transform, null, 9, Ui.Gold, new Vector2(Width - 66f, 18f), TextAnchor.MiddleLeft);
+            Ui.TextButton(_codeRow.transform, "copy", CopyCode, 58f, 18f);
+            _invite = Ui.Button(_hostBox.transform, "invite", "invite", true, SteamSession.OpenInviteOverlay, Width).gameObject;
+            Ui.Label(_hostBox.transform, Lang.Id("visibility"), 8, Ui.Gold, new Vector2(Width, 12f), TextAnchor.MiddleCenter);
+            RectTransform vis = Ui.Row(_hostBox.transform, Width, 22f);
+            string[] keys = { "vis_public", "vis_friends", "vis_invite" };
+            for (int i = 0; i < 3; i++)
+            {
+                int v = i;
+                Button b = Ui.TextButton(vis, keys[i], () => SetVisibility(v), Width / 3f - 3f, 22f);
+                _visButtons[i] = b.GetComponent<Image>();
+            }
+            Ui.Label(_hostBox.transform, Lang.Id("lobby_password"), 8, Ui.Gold, new Vector2(Width, 12f), TextAnchor.MiddleCenter);
+            _password = Ui.Input(_hostBox.transform, Lobby.Password, Width - 10f, SetPassword);
+            Ui.Button(_hostBox.transform, "on", "players_can", false, () => RulesWindow.Open(null), Width);
+            Ui.Button(_hostBox.transform, "key", "unlock_all", false, HostOnly.UnlockEverything, Width);
+            Ui.Separator(_hostBox.transform, Width);
+
+            _list = Ui.Group(transform, Width).GetComponent<RectTransform>();
+            _list.GetComponent<VerticalLayoutGroup>().spacing = 4f;
         }
 
-        public override void OnNormalEnable() { _shown = null; Rebuild(); }
+        public override void OnNormalEnable() { _shown = null; _hostShown = null; Rebuild(); }
 
         void Update()
         {
@@ -336,10 +475,61 @@ namespace WorldBoxMP
             Rebuild();
         }
 
+        void OpenLobby()
+        {
+            _setup = false;
+            MPMod.Instance.Host();
+            _shown = null;
+            _hostShown = null;
+            Rebuild();
+        }
+
+        static void SetVisibility(int v)
+        {
+            if (Lobby.Visibility == v) return;
+            Lobby.Visibility = v;
+            SteamSession.ApplyVisibility();
+            SessionLog.Write("lobby visibility " + v);
+            Instance?.RefreshHostBox();
+        }
+
+        static void SetPassword(string text)
+        {
+            string pw = (text ?? "").Trim();
+            if (pw == Lobby.Password) return;
+            Lobby.Password = pw;
+            SteamSession.PublishInfo();
+            SessionLog.Write(pw.Length > 0 ? "lobby password set" : "lobby password removed");
+        }
+
+        static void CopyCode()
+        {
+            string code = SteamSession.InviteCode;
+            if (code.Length == 0) return;
+            GUIUtility.systemCopyBuffer = code;
+            MPMod.Tip("tip_copied", code);
+        }
+
+        void RefreshHostBox()
+        {
+            string code = SteamSession.InviteCode;
+            string sig = Lobby.Visibility + "|" + code + "|" + Net.Role + "|" + SteamSession.LobbyOpen;
+            if (sig == _hostShown) return;
+            _hostShown = sig;
+            bool hosting = Net.Role == Role.Host;
+            if (_codeRow.activeSelf != hosting) _codeRow.SetActive(hosting);
+            bool invite = hosting && SteamSession.LobbyOpen;
+            if (_invite.activeSelf != invite) _invite.SetActive(invite);
+            if (hosting) Lang.Live(_code, "lobby_code", code.Length > 0 ? Lang.T("code", code) : Lang.T("ip_port", MPMod.Cfg.Port));
+            for (int i = 0; i < 3; i++)
+                _visButtons[i].sprite = SpriteTextureLoader.getSprite(i == Lobby.Visibility ? "ui/special/special_buttonRed" : "ui/special/special_buttonGray");
+            Ui.Relayout(null, transform);
+        }
+
         static string Signature()
         {
             var sb = new System.Text.StringBuilder();
-            sb.Append(Net.Role).Append('|').Append(Roster.LocalSlot).Append('|');
+            sb.Append(Net.Role).Append('|').Append(InSetup).Append('|').Append(Roster.LocalSlot).Append('|');
             foreach (PlayerInfo p in Roster.Players) sb.Append(p.Slot).Append(p.Name).Append(p.PingMs / 10).Append(';');
             for (int i = 0; i < Lobby.MaxGuests; i++) sb.Append(SlotState(i));
             foreach (var kv in Lobby.Kicked) sb.Append(kv.Key);
@@ -349,19 +539,29 @@ namespace WorldBoxMP
 
         static byte SlotState(int i)
         {
-            if (Net.Role != Role.Host) return Lobby.SlotState[i];
+            if (Net.Role != Role.Host && !InSetup) return Lobby.SlotState[i];
             return (byte)(Net.GuestIn((byte)(i + 1)) != null ? 2 : Lobby.SlotOpen[i] ? 1 : 0);
         }
 
         void Rebuild()
         {
             if (_list == null) return;
+            bool setup = InSetup;
+            bool host = Net.Role == Role.Host || setup;
+            bool changed = false;
+            if (_setupBox.activeSelf != setup) { _setupBox.SetActive(setup); changed = true; }
+            if (_hostBox.activeSelf != host) { _hostBox.SetActive(host); changed = true; }
+            if (host) RefreshHostBox();
+
             string sig = Signature();
-            if (sig == _shown) return;
+            if (sig == _shown)
+            {
+                if (changed) Ui.Relayout(_list, transform);
+                return;
+            }
             _shown = sig;
-            for (int i = _list.childCount - 1; i >= 0; i--) Destroy(_list.GetChild(i).gameObject);
-            bool host = Net.Role == Role.Host;
-            if (Roster.Players.Count == 0 && host) Roster.FromHost();
+            Ui.Clear(_list);
+            if (Roster.Players.Count == 0 && Net.Role == Role.Host) Roster.FromHost();
 
             PlayerRow(Roster.Get(0) ?? new PlayerInfo { Slot = 0, Name = PlayerNames.LocalName }, host);
             for (int i = 0; i < Lobby.MaxGuests; i++)
@@ -370,11 +570,11 @@ namespace WorldBoxMP
                 byte state = SlotState(i);
                 PlayerInfo p = Roster.Get(slot);
                 if (state == 2 && p != null) PlayerRow(p, host);
-                else if (state == 2 && host && Net.GuestIn(slot) != null) PlayerRow(new PlayerInfo { Slot = slot, Name = Net.GuestIn(slot).Label }, true);
+                else if (state == 2 && Net.Role == Role.Host && Net.GuestIn(slot) != null) PlayerRow(new PlayerInfo { Slot = slot, Name = Net.GuestIn(slot).Label }, true);
                 else EmptyRow(i, state, host);
             }
 
-            if (host && Lobby.Kicked.Count > 0)
+            if (Net.Role == Role.Host && Lobby.Kicked.Count > 0)
             {
                 Ui.Separator(_list, Width);
                 Ui.Label(_list, Lang.Id("removed_title"), 9, Ui.Gold, new Vector2(Width, 14f), TextAnchor.MiddleCenter);
@@ -384,19 +584,12 @@ namespace WorldBoxMP
                     RectTransform row = Ui.Panel(_list, new Vector2(Width, 24f));
                     LocalizedText name = Ui.Label(row, null, 8, Ui.Pale, new Vector2(Width - 90f, 18f), TextAnchor.MiddleLeft);
                     ((RectTransform)name.transform).anchoredPosition = new Vector2(-38f, 0f);
-                    Lang.Live(name, "kicked_" + key, kv.Value);
+                    Lang.Live(name, "kicked_" + key, Ui.Fit(kv.Value, 20));
                     Button again = Ui.TextButton(row, "invite_again", () => { Lobby.InviteAgain(key); _shown = null; Rebuild(); }, 80f, 18f);
                     ((RectTransform)again.transform).anchoredPosition = new Vector2(Width / 2f - 44f, 0f);
                 }
             }
-            if (host && Lobby.FreeSlot() != 0)
-            {
-                Ui.Separator(_list, Width);
-                Ui.Button(_list, "invite", "invite", true, SteamSession.Invite, Width);
-            }
-            Canvas.ForceUpdateCanvases();
-            LayoutRebuilder.ForceRebuildLayoutImmediate(_list);
-            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)transform);
+            Ui.Relayout(_list, transform);
         }
 
         void PlayerRow(PlayerInfo p, bool host)
@@ -406,14 +599,14 @@ namespace WorldBoxMP
             fig.color = Lobby.ColorOf(p.Slot);
             ((RectTransform)fig.transform).anchoredPosition = new Vector2(-Width / 2f + 16f, 0f);
             bool me = p.Slot == Roster.LocalSlot;
-            float textW = Width - (host && p.Slot != 0 ? 86f : 40f);
+            Guest g = Net.Role == Role.Host ? Net.GuestIn(p.Slot) : null;
+            float textW = Width - (g != null ? 86f : 40f);
             LocalizedText name = Ui.Label(row, null, 9, Lobby.ColorOf(p.Slot), new Vector2(textW, 15f), TextAnchor.MiddleLeft);
             ((RectTransform)name.transform).anchoredPosition = new Vector2(-Width / 2f + 30f + textW / 2f, 6f);
-            Lang.Live(name, "lobby_name_" + p.Slot, p.Name + (me ? " " + Lang.T("you") : ""));
+            Lang.Live(name, "lobby_name_" + p.Slot, Ui.Fit(p.Name, g != null ? 14 : 20) + (me ? " " + Lang.T("you") : ""));
             LocalizedText detail = Ui.Label(row, null, 7, Ui.Pale, new Vector2(textW, 12f), TextAnchor.MiddleLeft);
             ((RectTransform)detail.transform).anchoredPosition = new Vector2(-Width / 2f + 30f + textW / 2f, -7f);
             string info = p.Slot == 0 ? Lang.T("role_host") : p.PingMs > 0 ? Lang.T("ping", p.PingMs) : "";
-            Guest g = host ? Net.GuestIn(p.Slot) : null;
             if (g != null && g.OwnRules) info += (info.Length > 0 ? " · " : "") + Lang.T("rules_own");
             Lang.Live(detail, "lobby_detail_" + p.Slot, info);
             if (g == null) return;
@@ -437,6 +630,66 @@ namespace WorldBoxMP
             int i = index;
             Button toggle = Ui.TextButton(row, state == 0 ? "open_slot" : "close_slot", () => { Lobby.ToggleSlot(i); _shown = null; Rebuild(); }, 62f, 18f);
             ((RectTransform)toggle.transform).anchoredPosition = new Vector2(Width / 2f - 36f, 0f);
+        }
+
+        public static float TestTop() => Instance != null ? Ui.WorldRect((RectTransform)Instance._hostBox.transform).yMax : 0f;
+
+        public static void TestClickVisibility(int v)
+        {
+            if (Instance != null) Instance._visButtons[v].GetComponent<Button>().onClick.Invoke();
+        }
+
+        public static void TestOpen() { if (Instance != null && InSetup) Instance.OpenLobby(); }
+    }
+
+    public class PasswordWindow : SingleAutoLayoutWindow<PasswordWindow>
+    {
+        const float Width = 190f;
+        LocalizedText _what;
+        TextInput _input;
+        static bool _wrong;
+        public static bool Pending;
+
+        public static void Open(bool wrong)
+        {
+            _wrong = wrong;
+            Pending = true;
+            if (Instance == null) CreateWindow("wbmp_password", Lang.Id("password"));
+            if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
+            ScrollWindow.showWindow("wbmp_password");
+            Instance.Refresh();
+        }
+
+        protected override void Init()
+        {
+            layout.spacing = 6f;
+            layout.padding = new RectOffset(0, 0, 10, 12);
+            Image lockIcon = Ui.Image(transform, Icons.Get("lock"), new Vector2(28f, 28f));
+            _what = Ui.Label(transform, null, 9, Ui.Gold, new Vector2(Width, 16f), TextAnchor.MiddleCenter);
+            _input = Ui.Input(transform, "", Width - 10f, null);
+            _input.input.contentType = InputField.ContentType.Password;
+            _input.input.onEndEdit.AddListener(_ => { if (Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.KeypadEnter)) Submit(); });
+            Ui.Button(transform, "join", "join", true, Submit, Width);
+        }
+
+        public override void OnNormalEnable() => Refresh();
+
+        void Refresh()
+        {
+            if (_input == null) return;
+            Lang.Live(_what, "password_what", Lang.T(_wrong ? "wrong_password" : "need_password"));
+            _input.input.text = "";
+            _input.input.Select();
+            _input.input.ActivateInputField();
+        }
+
+        void Submit() => Enter(_input.input.text);
+
+        public static void Enter(string password)
+        {
+            Pending = false;
+            ScrollWindow.hideAllEvent(false);
+            MPMod.Instance.Rejoin(password ?? "");
         }
     }
 
@@ -467,7 +720,7 @@ namespace WorldBoxMP
         public static readonly Color Pale = new Color(0.86f, 0.84f, 0.78f);
         static Font _font;
 
-        static Font GameFont()
+        internal static Font GameFont()
         {
             if (_font == null)
             {
@@ -622,6 +875,67 @@ namespace WorldBoxMP
             LocalizedText label = Label(rect, Lang.Id(key), 8, Color.white, new Vector2(width - 66f, 18f), TextAnchor.MiddleLeft);
             ((RectTransform)label.transform).anchoredPosition = new Vector2(1f, 0f);
             return box;
+        }
+
+        public static void Clear(Transform parent)
+        {
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                Transform child = parent.GetChild(i);
+                child.gameObject.SetActive(false);
+                child.SetParent(null, false);
+                Object.Destroy(child.gameObject);
+            }
+        }
+
+        public static void Relayout(RectTransform list, Transform window)
+        {
+            ScrollRect sr = window.GetComponentInParent<ScrollRect>();
+            Vector2 keep = sr != null ? sr.content.anchoredPosition : Vector2.zero;
+            Canvas.ForceUpdateCanvases();
+            if (list != null) LayoutRebuilder.ForceRebuildLayoutImmediate(list);
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)window);
+            if (sr != null)
+            {
+                sr.StopMovement();
+                sr.content.anchoredPosition = keep;
+            }
+        }
+
+        public static string Fit(string s, int max)
+        {
+            s = s ?? "";
+            return s.Length <= max ? s : s.Substring(0, max - 1).TrimEnd() + "…";
+        }
+
+        public static Rect WorldRect(RectTransform r)
+        {
+            var c = new Vector3[4];
+            r.GetWorldCorners(c);
+            return new Rect(c[0].x, c[0].y, c[2].x - c[0].x, c[2].y - c[0].y);
+        }
+
+        public static TextInput Input(Transform parent, string text, float width, System.Action<string> onChange)
+        {
+            TextInput input = TextInput.Instantiate(parent, pName: "wbmp_input");
+            input.Setup(text ?? "", s => onChange?.Invoke(s));
+            input.SetSize(new Vector2(width, 18f));
+            input.input.textComponent.fontSize = 9;
+            input.input.textComponent.resizeTextForBestFit = false;
+            input.input.textComponent.alignment = TextAnchor.MiddleLeft;
+            input.input.characterLimit = 40;
+            return input;
+        }
+
+        public static void Mark(Transform parent, string icon, string key, Vector2 at)
+        {
+            RectTransform rect = Child(parent, "mark_" + icon, new Vector2(12f, 12f));
+            rect.anchoredPosition = at;
+            var img = rect.gameObject.AddComponent<Image>();
+            img.sprite = Icons.Get(icon);
+            var tip = rect.gameObject.AddComponent<TipButton>();
+            tip.textOnClick = Lang.Id(key);
+            tip.textOnClickDescription = null;
         }
 
         public static Button IconButton(Transform parent, string icon, string key, UnityAction action, float size)

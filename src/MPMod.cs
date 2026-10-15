@@ -40,18 +40,21 @@ namespace WorldBoxMP
                 SteamSession.Update();
                 MPTab.TryCreate();
                 MPTab.Update();
+                SessionLock.Update();
                 Rules.Update();
                 HostOnly.Update();
                 SessionLog.Update();
                 HandleHotkeys();
                 TestHarness.Update(this);
                 PumpNetwork();
-                if (Net.Role == Role.Host) HostUpdate();
-                if (Net.IsClientConnected) ClientUpdate();
+                if (Net.Role == Role.Host) Safe("host", HostUpdate);
+                if (Net.IsClientConnected) Safe("player", ClientUpdate);
                 NetStats.Update();
                 PlayerNames.Update();
                 RemoteCursor.Update();
                 PlayerLook.Update();
+                Chat.Update();
+                MapPings.Update();
                 if (WorldfallBridge.Present)
                 {
                     WorldfallBridge.PatchSteering(Harmony);
@@ -66,6 +69,19 @@ namespace WorldBoxMP
             Perf.Frame();
         }
 
+        static readonly Dictionary<string, int> _failures = new Dictionary<string, int>();
+
+        static void Safe(string what, Action step)
+        {
+            try { step(); }
+            catch (Exception e)
+            {
+                _failures.TryGetValue(what, out int n);
+                _failures[what] = ++n;
+                if (n <= 3 || n % 500 == 0) Debug.LogError("[WorldBoxMP] " + what + " failed (" + n + "x): " + e);
+            }
+        }
+
         void OnGUI()
         {
             GUI.depth = -1001;
@@ -73,6 +89,7 @@ namespace WorldBoxMP
             {
                 PlayerNames.Draw();
                 RemoteCursor.Draw();
+                MapPings.Draw();
             }
             catch (Exception e)
             {
@@ -90,21 +107,14 @@ namespace WorldBoxMP
 
         void HandleHotkeys()
         {
-            if (Input.GetKeyDown(KeyCode.F7))
-            {
-                Host();
-            }
-            else if (Input.GetKeyDown(KeyCode.F8))
-            {
-                Join();
-            }
-            else if (Input.GetKeyDown(KeyCode.F9))
+            if (Chat.Typing) return;
+            if (Input.GetKeyDown(KeyCode.F9))
             {
                 Resync();
             }
             else if (Input.GetKeyDown(KeyCode.F6))
             {
-                StopSession();
+                ExitLobby();
             }
         }
 
@@ -123,18 +133,58 @@ namespace WorldBoxMP
             else Tip("tip_not_connected");
         }
 
-        public void StopSession()
+        public void ExitLobby()
         {
             if (Net.Role == Role.None)
             {
                 Tip("tip_not_connected");
                 return;
             }
+            bool host = Net.Role == Role.Host;
+            EndSessionQuietly();
+            if (host)
+            {
+                Lobby.ResetHost();
+                Tip("tip_lobby_closed");
+            }
+            else
+            {
+                Tip("tip_left_lobby");
+                OpenSaves();
+            }
+        }
+
+        public void EndSessionQuietly()
+        {
+            if (Net.Role == Role.None) return;
             _hasWorld = false;
             Net.Stop();
             Rules.ResetClient();
-            Tip("tip_ended");
+            Roster.Clear();
+            Chat.Clear();
+            MapPings.Clear();
             SessionLog.Stop();
+        }
+
+        public void Rejoin(string password)
+        {
+            if (SteamSession.LastLobby != 0) SteamSession.Join(SteamSession.LastLobby, password);
+            else
+            {
+                Net.JoinPassword = password ?? "";
+                Join();
+            }
+        }
+
+        static void OpenSaves()
+        {
+            if (LobbyTest.On) return;
+            try
+            {
+                if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
+                ScrollWindow.showWindow("saves_list");
+            }
+            catch (Exception e) { Debug.Log("[WorldBoxMP] could not open the saves: " + e.Message); }
         }
 
         public void Host()
@@ -161,8 +211,9 @@ namespace WorldBoxMP
             try
             {
                 SessionLog.Start("client");
+                SteamSession.LastLobby = 0;
                 Net.Connect(Cfg.HostIp, Cfg.Port);
-                Net.Peer.Send(Msg.Hello, BitConverter.GetBytes(Net.ProtocolVersion));
+                Net.Peer.Send(Msg.Hello, Net.Hello());
                 Tip("tip_connecting", Cfg.HostIp);
                 return true;
             }
@@ -193,12 +244,12 @@ namespace WorldBoxMP
                 UnityEngine.Camera.main.transform.position = _cameraPos;
                 Access.Camera.forceZoom(_cameraZoom);
             }
-            ClientSync.Update();
-            RemotePossession.ClientUpdate();
-            RemoteMagnet.ClientUpdate();
-            RemoteMagnet.ClientBallUpdate();
-            PlayerEdits.UpdateClient();
-            ViewSync.UpdateClient();
+            Safe("sync", ClientSync.Update);
+            Safe("possession", RemotePossession.ClientUpdate);
+            Safe("magnet", RemoteMagnet.ClientUpdate);
+            Safe("ball", RemoteMagnet.ClientBallUpdate);
+            Safe("edits", PlayerEdits.UpdateClient);
+            Safe("view", ViewSync.UpdateClient);
             if (Checksum.Consecutive >= 15 && !_askedResync)
             {
                 _askedResync = true;
@@ -269,8 +320,19 @@ namespace WorldBoxMP
             Net.Stop();
             Rules.ResetClient();
             Roster.Clear();
+            Chat.Clear();
+            MapPings.Clear();
             SessionLog.Stop();
-            Tip(tipKey);
+            if (tipKey == "wrong_password")
+            {
+                Tip(Net.JoinPassword.Length > 0 ? "wrong_password" : "need_password");
+                PasswordWindow.Open(Net.JoinPassword.Length > 0);
+            }
+            else
+            {
+                Tip(tipKey);
+                OpenSaves();
+            }
             TestHarness.OnClientDropped();
         }
 
@@ -280,9 +342,18 @@ namespace WorldBoxMP
             {
                 case Msg.Hello when Net.Role == Role.Host:
                     int version = pkt.Data.Length >= 4 ? BitConverter.ToInt32(pkt.Data, 0) : -1;
+                    string password = "";
+                    try { if (pkt.Data.Length > 4) password = new BinaryReader(new MemoryStream(pkt.Data, 4, pkt.Data.Length - 4)).ReadString(); }
+                    catch { }
+                    Guest joined = Net.Current;
+                    if (!Lobby.PasswordOk(joined, password))
+                    {
+                        SessionLog.Write("refused " + joined.Label + ": wrong password");
+                        Lobby.Refuse(joined, "wrong_password");
+                        break;
+                    }
                     if (version != Net.ProtocolVersion)
                         Tip("tip_version", version, Net.ProtocolVersion);
-                    Guest joined = Net.Current;
                     joined.Peer.Send(Msg.Welcome, new[] { joined.Slot });
                     Rules.SendTo(joined);
                     SendWorldTo(joined);
@@ -378,6 +449,18 @@ namespace WorldBoxMP
                 case Msg.Ping:
                     NetStats.OnPing(pkt.Data);
                     break;
+                case Msg.Chat when Net.Role == Role.Host:
+                    Chat.HostReceive(pkt.Data);
+                    break;
+                case Msg.Chat when Net.Role == Role.Client:
+                    Chat.ClientReceive(pkt.Data);
+                    break;
+                case Msg.MapPing when Net.Role == Role.Host:
+                    MapPings.HostReceive(pkt.Data);
+                    break;
+                case Msg.MapPing when Net.Role == Role.Client:
+                    MapPings.ClientReceive(pkt.Data);
+                    break;
                 case Msg.Pong:
                     NetStats.OnPong(pkt.Data);
                     break;
@@ -434,6 +517,7 @@ namespace WorldBoxMP
 
         static void LoadWorld(byte[] bytes)
         {
+            PlayerEdits.WorldLoaded();
             if (_hasWorld)
             {
                 _cameraPos = UnityEngine.Camera.main.transform.position;

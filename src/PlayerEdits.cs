@@ -112,14 +112,57 @@ namespace WorldBoxMP
             string key = Key(World_, 0);
             var host = new[] { speed, paused ? "1" : "0" };
             if (IsPending(World_, 0)) return;
+            string[] mine = ReadWorld();
+            if (_baseline.TryGetValue(key, out string[] was) && (mine[0] != was[0] || mine[1] != was[1]) && JustPressed())
+            {
+                ScanSelectedUnits();
+                if (IsPending(World_, 0)) return;
+            }
             _baseline[key] = host;
             if (Config.time_scale_asset == null || Config.time_scale_asset.id != speed)
             {
                 WorldTimeScaleAsset asset = AssetManager.time_scales.get(speed);
-                if (asset != null) Config.setWorldSpeed(asset);
+                if (asset != null) SetHostSpeed(asset);
             }
             if (Config.paused != paused) Config.paused = paused;
         }
+
+        static bool _applyingHost;
+        static float _ignoreSpeedUntil;
+
+        static void SetHostSpeed(WorldTimeScaleAsset asset)
+        {
+            _applyingHost = true;
+            try { Config.setWorldSpeed(asset); }
+            finally { _applyingHost = false; }
+        }
+
+        public static void WorldLoaded() => _ignoreSpeedUntil = Time.unscaledTime + 3f;
+
+        public static bool SpeedByGame;
+
+        public static void SpeedSet(WorldTimeScaleAsset before)
+        {
+            if (!Net.IsClientConnected || _applyingHost || SpeedByGame || Config.time_scale_asset == before) return;
+            if (SmoothLoader.isLoading() || Time.unscaledTime < _ignoreSpeedUntil) return;
+            string key = Key(World_, 0);
+            if (!_baseline.TryGetValue(key, out string[] host)) return;
+            if (!Rules.ClientMay(Perm.Speed))
+            {
+                WorldTimeScaleAsset back = AssetManager.time_scales.get(host[0]);
+                if (back != null && back != Config.time_scale_asset) SetHostSpeed(back);
+                Rules.Refuse(Perm.Speed);
+                return;
+            }
+            var w = new BinaryWriter(new MemoryStream());
+            Send(w, Compare(w, World_, 0, ReadWorld(), WorldFields, true));
+            SpeedChanges++;
+        }
+
+        public static int SpeedChanges;
+
+        static bool JustPressed() =>
+            ForceInteractive || Time.unscaledTime - _lastInput < 0.5f || Input.anyKeyDown || Input.GetMouseButtonUp(0) || Input.GetMouseButtonDown(0);
 
         public static bool IsPending(string kind, long id) =>
             _pendingUntil.TryGetValue(Key(kind, id), out float until) && Time.unscaledTime < until;
@@ -165,7 +208,7 @@ namespace WorldBoxMP
                     if (a != null && a.isAlive() && seen.Add(a)) count += Compare(w, Units, a.getID(), ReadUnit(a), UnitFields);
             Actor main = SelectedUnit.unit;
             if (main != null && main.isAlive() && seen.Add(main)) count += Compare(w, Units, main.getID(), ReadUnit(main), UnitFields);
-            bool pressed = ForceInteractive || Time.unscaledTime - _lastInput < 0.5f;
+            bool pressed = ForceInteractive || JustPressed();
             if (pressed && !Rules.ClientMay(Perm.Speed))
             {
                 string[] now = ReadWorld();

@@ -147,12 +147,18 @@ namespace WorldBoxMP
             }
             BaseSimObject baseSimObject = Access.AttackTarget(unit);
             bool flag2 = baseSimObject != null && baseSimObject.isAlive();
+            Vector2 target = flag2 ? baseSimObject.current_position : Vector2.zero;
+            if (!flag2 && RemotePossession.AimOf(unit, out Vector2 aim))
+            {
+                target = aim;
+                flag2 = true;
+            }
             _hostAttacks.Add(new Attack
             {
                 Time = Clock.Now,
                 Id = id,
                 Stamp = num,
-                Target = (flag2 ? baseSimObject.current_position : Vector2.zero),
+                Target = target,
                 HasTarget = flag2
             });
         }

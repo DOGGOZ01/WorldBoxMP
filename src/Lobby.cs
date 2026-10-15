@@ -26,6 +26,12 @@ namespace WorldBoxMP
 
         public static Color ColorOf(byte slot) => Colors[slot < Colors.Length ? slot : 0];
 
+        public static string Password = "";
+
+        public static int Visibility = 1;
+
+        public static readonly HashSet<ulong> Invited = new HashSet<ulong>();
+
         public static readonly bool[] SlotOpen = { true, true, true };
 
         public static readonly Dictionary<string, string> Kicked = new Dictionary<string, string>();
@@ -80,6 +86,18 @@ namespace WorldBoxMP
             return i > 0 ? r.Substring(0, i) : r;
         }
 
+        public static bool PasswordOk(Guest g, string password)
+        {
+            if (Password.Length == 0 || password == Password) return true;
+            return g.Peer is SteamPeer sp && sp.SteamId != 0 && Invited.Contains(sp.SteamId);
+        }
+
+        public static void Refuse(Guest g, string key)
+        {
+            Leave(g);
+            Refuse(g.Peer, key);
+        }
+
         static void Refuse(Peer peer, string key)
         {
             using (var ms = new MemoryStream())
@@ -106,7 +124,7 @@ namespace WorldBoxMP
         {
             if (!Kicked.TryGetValue(key, out string name)) return;
             Kicked.Remove(key);
-            if (key.StartsWith("steam:") && ulong.TryParse(key.Substring(6), out ulong id)) SteamSession.InviteFriend(id);
+            if (key.StartsWith("steam:") && ulong.TryParse(key.Substring(6), out ulong id)) SteamSession.InviteFriend(id, name);
             SessionLog.Write("invited again: " + name);
             Changed();
         }
@@ -132,6 +150,7 @@ namespace WorldBoxMP
         public static void ResetHost()
         {
             Kicked.Clear();
+            Invited.Clear();
             for (int i = 0; i < SlotOpen.Length; i++) SlotOpen[i] = true;
             _sent = null;
         }

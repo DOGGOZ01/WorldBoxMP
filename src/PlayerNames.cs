@@ -37,11 +37,7 @@ namespace WorldBoxMP
         {
             get
             {
-                string text = MPMod.Cfg?.PlayerName;
-                if (!string.IsNullOrEmpty(text))
-                {
-                    return text;
-                }
+                if (!string.IsNullOrEmpty(TestHarness.Name)) return TestHarness.Name;
                 try
                 {
                     if (SteamSession.Available && !string.IsNullOrEmpty(SteamClient.Name))

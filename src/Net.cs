@@ -42,6 +42,8 @@ namespace WorldBoxMP
         Refused = 30,
         Magnet = 31,
         Boulder = 32,
+        Chat = 33,
+        MapPing = 34,
     }
 
     public struct Packet
@@ -292,7 +294,7 @@ namespace WorldBoxMP
 
     public static class Net
     {
-        public const int ProtocolVersion = 20;
+        public const int ProtocolVersion = 23;
 
         public static Role Role { get; private set; } = Role.None;
         static Peer _peer;
@@ -335,6 +337,17 @@ namespace WorldBoxMP
 
         static TcpListener _listener;
         static readonly ConcurrentQueue<Peer> _accepted = new ConcurrentQueue<Peer>();
+
+        public static string JoinPassword = "";
+
+        public static byte[] Hello()
+        {
+            var ms = new System.IO.MemoryStream();
+            var w = new System.IO.BinaryWriter(ms);
+            w.Write(ProtocolVersion);
+            w.Write(JoinPassword ?? "");
+            return ms.ToArray();
+        }
 
         public static bool IsClientConnected => Role == Role.Client && _peer != null && !_peer.Closed;
 

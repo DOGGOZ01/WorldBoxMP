@@ -82,6 +82,15 @@ namespace WorldBoxMP
 
         public static byte HolderSlot(Actor a) => SeatOf(a)?.Guest.Slot ?? 0;
 
+        public static bool AimOf(Actor a, out Vector2 aim)
+        {
+            Seat s = SeatOf(a);
+            if (s != null) { aim = s.Input.Mouse; return true; }
+            if (ControllableUnit.isControllingUnit(a)) { aim = World.world.getMousePos(); return true; }
+            aim = Vector2.zero;
+            return false;
+        }
+
         public static void FriendInput(byte slot, out Vector2 movement, out Vector2 mouse, out bool attackLeft)
         {
             Seat s = SeatOf(Net.GuestIn(slot));
@@ -108,6 +117,7 @@ namespace WorldBoxMP
             {
                 ControllableUnit.updateControllableUnit();
                 if (TestMovement.HasValue) MovementVector() = TestMovement.Value;
+                if (AnimTest.TestAttack) Flags[0]() = true;
                 OwnUnit.Step();
                 SendInput();
             }
@@ -120,12 +130,18 @@ namespace WorldBoxMP
             _wasControlling = controlling;
         }
 
+        public static Vector2 MousePos()
+        {
+            if (AnimTest.TestMouse.HasValue) return AnimTest.TestMouse.Value;
+            return WorldfallBridge.InFirstPerson && WorldfallBridge.TryAimPoint(out Vector2 aim) ? aim : World.world.getMousePos();
+        }
+
         static void SendInput()
         {
             var ms = new MemoryStream();
             var w = new BinaryWriter(ms);
             Vector2 mv = MovementVector(), cv = ClickVector();
-            Vector2 mouse = WorldfallBridge.InFirstPerson && WorldfallBridge.TryAimPoint(out Vector2 aim) ? aim : World.world.getMousePos();
+            Vector2 mouse = MousePos();
             w.Write(mv.x); w.Write(mv.y);
             w.Write(cv.x); w.Write(cv.y);
             w.Write(mouse.x); w.Write(mouse.y);

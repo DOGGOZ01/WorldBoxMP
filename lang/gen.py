@@ -7,9 +7,10 @@ from strings import KEYS, L
 import strings_rules
 import strings_powers
 import strings_lobby
+import strings_v17
 
 # later tables add keys at the end of every language's row
-for _more in (strings_rules, strings_powers, strings_lobby):
+for _more in (strings_rules, strings_powers, strings_lobby, strings_v17):
     KEYS = KEYS + _more.KEYS
     L = {lang: rows + _more.L.get(lang, []) for lang, rows in L.items()}
 

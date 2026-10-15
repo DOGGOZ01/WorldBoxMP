@@ -11,11 +11,10 @@ namespace WorldBoxMP
         public int Port = 7777;
         public float ResyncSeconds = 0f;
         public int TickMs = 50;
-        public string PlayerName = "";
         public bool ShowNames = true;
         public float InfoSeconds = 20f;
 
-        static readonly string[] Keys = { "host_ip", "port", "full_resync_seconds", "tick_ms", "player_name", "show_names", "info_refresh_seconds" };
+        static readonly string[] Keys = { "host_ip", "port", "full_resync_seconds", "tick_ms", "show_names", "info_refresh_seconds" };
 
         public static MPConfig Load(string folder)
         {
@@ -43,7 +42,6 @@ namespace WorldBoxMP
                                 if (cfg.ResyncSeconds == 120f) { cfg.ResyncSeconds = 0f; continue; }
                                 break;
                             case "tick_ms": cfg.TickMs = Math.Max(20, int.Parse(val, CultureInfo.InvariantCulture)); break;
-                            case "player_name": cfg.PlayerName = val; break;
                             case "info_refresh_seconds":
                                 cfg.InfoSeconds = Math.Max(1f, float.Parse(val, CultureInfo.InvariantCulture));
                                 if (cfg.InfoSeconds == 10f) { cfg.InfoSeconds = 20f; continue; }
@@ -66,7 +64,7 @@ namespace WorldBoxMP
         {
             File.WriteAllText(path,
                 "# WorldBoxMP settings\n" +
-                "# the host's IP address (the second player sets this before pressing F8)\n" +
+                "# the last address typed in \"Join by IP\"\n" +
                 "host_ip=" + HostIp + "\n" +
                 "port=" + Port + "\n" +
                 "# the whole world is sent on connect and on F9; differences are repaired object by object.\n" +
@@ -74,8 +72,6 @@ namespace WorldBoxMP
                 "full_resync_seconds=" + ResyncSeconds.ToString(CultureInfo.InvariantCulture) + "\n" +
                 "# how often the host sends changes, in milliseconds\n" +
                 "tick_ms=" + TickMs + "\n" +
-                "# the name shown above the units you control (empty = your Steam name)\n" +
-                "player_name=" + PlayerName + "\n" +
                 "# show players' names above the units they control (1 = on, 0 = off)\n" +
                 "show_names=" + (ShowNames ? "1" : "0") + "\n" +
                 "# units the second player is not looking at are re-checked (name, health, level, hunger...) this often,\n" +

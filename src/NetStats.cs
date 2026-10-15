@@ -155,5 +155,25 @@ namespace WorldBoxMP
                 catch { return "?"; }
             }
         }
+
+        static int _otherMods = -1;
+
+        public static int OtherModCount()
+        {
+            if (_otherMods >= 0) return _otherMods;
+            _otherMods = 0;
+            try
+            {
+                string own = MPMod.Instance.GetDeclaration().UID;
+                foreach (var mod in NeoModLoader.WorldBoxMod.LoadedMods)
+                {
+                    var d = mod.GetDeclaration();
+                    if (d == null || d.UID == own || (d.Name ?? "").StartsWith("NeoModLoader")) continue;
+                    _otherMods++;
+                }
+            }
+            catch { }
+            return _otherMods;
+        }
     }
 }

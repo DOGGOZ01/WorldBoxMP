@@ -245,15 +245,34 @@ namespace WorldBoxMP
             try
             {
                 BallPullFrom() = from;
+                BallReleasedAt = to;
                 EffectsLibrary.spawnAt("fx_boulder", to, 1f);
                 Balls++;
             }
             finally
             {
+                BallReleasedAt = null;
                 BallPullFrom() = hostFrom;
                 BallCharging() = hostCharging;
             }
         }
+
+        public static Vector2? BallReleasedAt;
+
+        [HarmonyLib.HarmonyPatch(typeof(EffectsLibrary), nameof(EffectsLibrary.spawnBoulder))]
+        static class BallFromThePlayersPointer
+        {
+            static bool Prefix(BaseEffect pEffect, ref BaseEffect __result)
+            {
+                if (!BallReleasedAt.HasValue || !(pEffect is Boulder boulder)) return true;
+                boulder.spawnOn(BallReleasedAt.Value);
+                LastBallStart = BallReleasedAt.Value;
+                __result = pEffect;
+                return false;
+            }
+        }
+
+        public static Vector2 LastBallStart;
 
         public static void TestSend(byte what, Vector2 pos, Vector2 force) => Send(what, pos, force);
         public static void TestSendBall(Vector2 from, Vector2 to) => SendBall(from, to);

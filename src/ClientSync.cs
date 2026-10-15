@@ -32,6 +32,8 @@ namespace WorldBoxMP
         static readonly Dictionary<long, Actor> _possessedReloads = new Dictionary<long, Actor>();
         static readonly Dictionary<long, List<Sample>> _tracks = new Dictionary<long, List<Sample>>();
         static readonly List<long> _lost = new List<long>();
+        static readonly Action<Actor, float> UpdateRotations =
+            AccessTools.MethodDelegate<Action<Actor, float>>(AccessTools.Method(typeof(Actor), "updateRotations"));
         static readonly Action<Actor, float> UpdateFlipRotation =
             AccessTools.MethodDelegate<Action<Actor, float>>(AccessTools.Method(typeof(Actor), "updateFlipRotation"));
         static double _packetTime;
@@ -96,7 +98,7 @@ namespace WorldBoxMP
             }
             Glide();
             Turn();
-            AnimationHelper.updateTime(Time.deltaTime, Time.deltaTime);
+            AdvanceAnimations(Time.deltaTime);
             SoundSync.MuteDepth++;
             try
             {
@@ -128,13 +130,25 @@ namespace WorldBoxMP
             CheckDirtyUnits(world);
             CheckDirtyMetaObjects(world);
             CheckAnyMetaAddedRemoved(world);
-            foreach (MapLayer layer in MapLayers(World.world)) layer.draw(Time.deltaTime);
+            foreach (MapLayer layer in MapLayers(World.world))
+            {
+                try { layer.draw(Time.deltaTime); }
+                catch (Exception e) { LayerFailed(layer, e); }
+            }
             foreach (string id in VisualBehaviours)
             {
                 WorldBehaviourAsset b = AssetManager.world_behaviours.get(id);
                 if (b != null && b.enabled) b.manager.update(Time.deltaTime);
             }
-            UpdateVisibility(slowPass);
+            Step("visibility", () => UpdateVisibility(slowPass));
+        }
+
+        static void LayerFailed(MapLayer layer, Exception e)
+        {
+            string name = "layer " + layer.GetType().Name;
+            _stepFailures.TryGetValue(name, out int n);
+            _stepFailures[name] = ++n;
+            if (n <= 3 || n % 500 == 0) Debug.LogError("[WorldBoxMP] client " + name + " failed (" + n + "x): " + e);
         }
 
         static readonly HashSet<BatchBuildings> _batches = new HashSet<BatchBuildings>();
@@ -367,6 +381,18 @@ namespace WorldBoxMP
             return s;
         }
 
+        static readonly AccessTools.FieldRef<float> AnimTimeSimulation =
+            AccessTools.StaticFieldRefAccess<float>(AccessTools.Field(typeof(AnimationHelper), "_time_simulation"));
+        static readonly AccessTools.FieldRef<float> AnimTimeSession =
+            AccessTools.StaticFieldRefAccess<float>(AccessTools.Field(typeof(AnimationHelper), "_time_session"));
+
+        static void AdvanceAnimations(float dt)
+        {
+            float speed = Config.time_scale_asset != null ? Config.time_scale_asset.multiplier : 1f;
+            if (!Config.paused) AnimTimeSimulation() = (AnimTimeSimulation() + dt * speed) % 100f;
+            AnimTimeSession() = (AnimTimeSession() + dt) % 100f;
+        }
+
         static void Step(string name, Action step)
         {
             try { step(); }
@@ -502,12 +528,18 @@ namespace WorldBoxMP
                 HashSet<Actor> controlled = ControllableUnit.getCotrolledUnits();
                 if (controlled != null && controlled.Count > 0 && InputHelpers.mouseSupported)
                 {
-                    Vector2 mouse = WorldfallBridge.InFirstPerson && WorldfallBridge.TryAimPoint(out Vector2 aim) ? aim : World.world.getMousePos();
+                    Vector2 mouse = RemotePossession.MousePos();
                     foreach (Actor a in controlled)
                         if (a != null && a.isAlive()) a.checkFlipAgainstTargetPosition(mouse);
                 }
+                float speed = Config.time_scale_asset != null ? Config.time_scale_asset.multiplier : 1f;
+                float rotate = Config.paused ? 0f : elapsed * speed;
                 foreach (Actor a in World.world.units)
-                    if (a.isAlive() && !a.isInsideSomething()) UpdateFlipRotation(a, elapsed);
+                {
+                    if (!a.isAlive() || a.isInsideSomething()) continue;
+                    UpdateFlipRotation(a, elapsed);
+                    if (rotate > 0f) UpdateRotations(a, rotate);
+                }
             }
             catch (Exception e)
             {
