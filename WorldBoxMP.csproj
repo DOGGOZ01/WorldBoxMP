@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Builds a precompiled NeoModLoader mod. Game DLLs are referenced from the user's own install and never copied. -->
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>9.0</LangVersion>
@@ -13,6 +12,14 @@
     <Managed>$(GameDir)\worldbox_Data\Managed</Managed>
     <NmlDir>$(GameDir)\worldbox_Data\StreamingAssets\mods</NmlDir>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Tests)' == 'true'">
+    <DefineConstants>$(DefineConstants);WBMP_TESTS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Tests)' != 'true'">
+    <Compile Remove="src/TestHarness.cs;src/LobbyTest.cs;src/RulesTest.cs;src/AnimTest.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
@@ -37,10 +44,9 @@
     <Reference Include="0Harmony"><HintPath>$(NmlDir)\NML\Assemblies\0Harmony.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
-  <!-- dotnet build -p:Deploy=true copies the mod into <game>/Mods/WorldBoxMP -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(Deploy)' == 'true'">
     <ItemGroup>
-      <ModFiles Include="$(OutDir)WorldBoxMP.dll;$(OutDir)WorldBoxMP.pdb;mod.json;package/collect_logs.ps1;package/СОБРАТЬ_ЛОГИ.bat;package/README_RU.txt" />
+      <ModFiles Include="$(OutDir)WorldBoxMP.dll;$(OutDir)WorldBoxMP.pdb;mod.json;package/README.txt" />
     </ItemGroup>
     <Copy SourceFiles="@(ModFiles)" DestinationFolder="$(GameDir)\Mods\WorldBoxMP" />
   </Target>

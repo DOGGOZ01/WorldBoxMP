@@ -52,7 +52,7 @@ namespace WorldBoxMP
             }
             if (_time >= 10f)
             {
-                SessionLog.Write("perf: " + ((float)_frames / _time).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " fps, slowest frame " + (_worstFrame * 1000f).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms, WorldBoxMP " + (_modMs / (double)_frames).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " ms/frame (worst " + _worstModMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms), first person " + (WorldfallBridge.InFirstPerson ? "on" : "off") + ", units " + World.world.units.Count + (Net.IsClientConnected ? (", shown attacks " + ActionSync.ShownAttacks + " shots " + ActionSync.ShownShots) : ""));
+                SessionLog.Write("perf: " + ((float)_frames / _time).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " fps, slowest frame " + (_worstFrame * 1000f).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms, WorldBoxMP " + (_modMs / (double)_frames).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " ms/frame (worst " + _worstModMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms), units " + World.world.units.Count + (Net.IsClientConnected ? (", shown attacks " + ActionSync.ShownAttacks + " shots " + ActionSync.ShownShots) : ""));
                 _frames = 0;
                 _time = (_worstFrame = 0f);
                 _modMs = (_worstModMs = 0.0);

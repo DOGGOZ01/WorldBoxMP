@@ -20,18 +20,9 @@ namespace WorldBoxMP
             Camera cam = Camera.main;
             if (cam == null) return;
             float minX, minY, maxX, maxY;
-            Actor own = ControllableUnit.getControllableUnit();
-            if (WorldfallBridge.InFirstPerson && own != null)
-            {
-                Vector2 p = own.current_position;
-                minX = p.x - 40f; maxX = p.x + 40f; minY = p.y - 40f; maxY = p.y + 40f;
-            }
-            else
-            {
-                float halfH = cam.orthographicSize, halfW = halfH * cam.aspect;
-                Vector3 c = cam.transform.position;
-                minX = c.x - halfW; maxX = c.x + halfW; minY = c.y - halfH; maxY = c.y + halfH;
-            }
+            float halfH = cam.orthographicSize, halfW = halfH * cam.aspect;
+            Vector3 c = cam.transform.position;
+            minX = c.x - halfW; maxX = c.x + halfW; minY = c.y - halfH; maxY = c.y + halfH;
             var ms = new MemoryStream(16);
             var w = new BinaryWriter(ms);
             w.Write(minX); w.Write(minY); w.Write(maxX); w.Write(maxY);

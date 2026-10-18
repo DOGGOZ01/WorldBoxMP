@@ -30,8 +30,6 @@ namespace WorldBoxMP
 
         static readonly AccessTools.FieldRef<Actor> UnitMain = Ref<Actor>("_unit_main");
         static readonly AccessTools.FieldRef<HashSet<Actor>> Units = Ref<HashSet<Actor>>("_units");
-        static readonly Action<Actor> AddPossessedStatus =
-            AccessTools.MethodDelegate<Action<Actor>>(AccessTools.Method(typeof(ControllableUnit), "addStatus"));
 
         struct InputState
         {
@@ -72,11 +70,8 @@ namespace WorldBoxMP
 
         static bool _suppressSend;
         static bool _wasControlling;
-        static float _hostLogTimer;
         static float _inputTimer;
         static byte[] _lastInput;
-
-        public static Vector2? TestMovement;
 
         public static bool IsRemote(Actor a) => SeatOf(a) != null;
 
@@ -116,8 +111,8 @@ namespace WorldBoxMP
             if (controlling)
             {
                 ControllableUnit.updateControllableUnit();
-                if (TestMovement.HasValue) MovementVector() = TestMovement.Value;
-                if (AnimTest.TestAttack) Flags[0]() = true;
+                if (TestHooks.Movement.HasValue) MovementVector() = TestHooks.Movement.Value;
+                if (TestHooks.Attack) Flags[0]() = true;
                 OwnUnit.Step();
                 SendInput();
             }
@@ -132,8 +127,8 @@ namespace WorldBoxMP
 
         public static Vector2 MousePos()
         {
-            if (AnimTest.TestMouse.HasValue) return AnimTest.TestMouse.Value;
-            return WorldfallBridge.InFirstPerson && WorldfallBridge.TryAimPoint(out Vector2 aim) ? aim : World.world.getMousePos();
+            if (TestHooks.Mouse.HasValue) return TestHooks.Mouse.Value;
+            return World.world.getMousePos();
         }
 
         static void SendInput()
@@ -227,7 +222,7 @@ namespace WorldBoxMP
                 Seat holder = SeatOf(a);
                 if (HostControls(a) || (holder != null && holder.Guest != Net.Current)) { refused.Add(id); busy = true; continue; }
                 SeatOf(Net.Current)?.Units.Add(a);
-                AddPossessedStatus(a);
+                Access.AddPossessedStatus(a);
                 names.Add(a.getID() + " " + a.asset.id);
             }
             if (names.Count > 0) SessionLog.Write(Net.Current?.Label + " possessed: " + string.Join(", ", names));
@@ -312,7 +307,7 @@ namespace WorldBoxMP
                     seat.StatusTimer = 2f;
                     foreach (Actor a in seat.Units)
                     {
-                        AddPossessedStatus(a);
+                        Access.AddPossessedStatus(a);
                         a.stopSleeping();
                         a.next_step_position = a.next_step_position_possession;
                     }

@@ -6,17 +6,10 @@ namespace WorldBoxMP
 {
     public static class Replacements
     {
-        static readonly AccessTools.FieldRef<Army, Actor> ArmyCaptain = AccessTools.FieldRefAccess<Army, Actor>("_captain");
-        static readonly AccessTools.FieldRef<Family, Actor> FamilyAlpha = AccessTools.FieldRefAccess<Family, Actor>("_cached_alpha");
-        static readonly AccessTools.FieldRef<Family, Actor> FamilyFounder1 = AccessTools.FieldRefAccess<Family, Actor>("_founder_1");
-        static readonly AccessTools.FieldRef<Family, Actor> FamilyFounder2 = AccessTools.FieldRefAccess<Family, Actor>("_founder_2");
-        static readonly AccessTools.FieldRef<List<Tweener>> WindowAnimations =
-            AccessTools.StaticFieldRefAccess<List<Tweener>>(AccessTools.Field(typeof(ScrollWindow), "_animations_list"));
-
         public static int Fixed, StuckAnimations;
         public static bool Disabled;
 
-        public static int WindowAnimationCount => WindowAnimations()?.Count ?? 0;
+        public static int WindowAnimationCount => Access.WindowAnimations()?.Count ?? 0;
 
         public static void Actors(Dictionary<Actor, Actor> map)
         {
@@ -51,14 +44,14 @@ namespace WorldBoxMP
                 if (c.leader != null && map.TryGetValue(c.leader, out Actor n)) { c.leader = n; Fixed++; }
             foreach (Army a in w.armies)
             {
-                Actor cap = ArmyCaptain(a);
-                if (cap != null && map.TryGetValue(cap, out Actor n)) { ArmyCaptain(a) = n; Fixed++; }
+                Actor cap = Access.ArmyCaptain(a);
+                if (cap != null && map.TryGetValue(cap, out Actor n)) { Access.ArmyCaptain(a) = n; Fixed++; }
             }
             foreach (Family f in w.families)
             {
-                FamilyAlpha(f) = Swap(FamilyAlpha(f));
-                FamilyFounder1(f) = Swap(FamilyFounder1(f));
-                FamilyFounder2(f) = Swap(FamilyFounder2(f));
+                Access.FamilyAlpha(f) = Swap(Access.FamilyAlpha(f));
+                Access.FamilyFounder1(f) = Swap(Access.FamilyFounder1(f));
+                Access.FamilyFounder2(f) = Swap(Access.FamilyFounder2(f));
             }
             foreach (Actor u in w.units)
                 if (u.lover != null && map.TryGetValue(u.lover, out Actor n)) { u.lover = n; Fixed++; }
@@ -66,7 +59,7 @@ namespace WorldBoxMP
 
         public static void DropStuckWindowAnimations()
         {
-            List<Tweener> list = WindowAnimations();
+            List<Tweener> list = Access.WindowAnimations();
             if (Disabled || list == null || list.Count == 0) return;
             int removed = list.RemoveAll(t => t == null || !t.IsActive());
             if (removed > 0)

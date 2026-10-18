@@ -15,10 +15,12 @@ logs/
 *.png
 WorldBoxMP.cfg
 
-# Dev tools and journal (not part of the mod)
+# Dev tools and journal
 tools/
 MODLOG.md
 *.py
+!lang/*.py
+!art/*.py
 
 # IDE
 .vs/
@@ -31,5 +33,3 @@ MODLOG.md
 Thumbs.db
 Desktop.ini
 .DS_Store
-!lang/*.py
-!art/*.py

@@ -119,8 +119,7 @@ namespace WorldBoxMP
                   .Append(" gpu=\"").Append(SystemInfoText(UnityEngine.SystemInfo.graphicsDeviceName)).Append("\" vram_mb=").Append(UnityEngine.SystemInfo.graphicsMemorySize)
                   .Append(" screen=").Append(Screen.width).Append('x').Append(Screen.height)
                   .Append(" utc_offset=").Append(TimeZoneInfo.Local.GetUtcOffset(DateTime.Now))
-                  .Append(" utc_now=").Append(DateTime.UtcNow.ToString("HH:mm:ss.fff"))
-                  .Append(" worldfall=").Append(WorldfallBridge.Present ? "yes" : "no");
+                  .Append(" utc_now=").Append(DateTime.UtcNow.ToString("HH:mm:ss.fff"));
                 var cfg = MPMod.Cfg;
                 if (cfg != null)
                     sb.Append(" cfg: tick_ms=").Append(cfg.TickMs).Append(" full_resync_seconds=").Append(cfg.ResyncSeconds)

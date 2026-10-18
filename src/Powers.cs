@@ -6,19 +6,6 @@ namespace WorldBoxMP
 {
     public static class Powers
     {
-        static readonly AccessTools.FieldRef<PlayerControl, float> ClickTimer =
-            AccessTools.FieldRefAccess<PlayerControl, float>("_click_timer");
-        static readonly AccessTools.FieldRef<PlayerControl, WorldTile> FirstTile =
-            AccessTools.FieldRefAccess<PlayerControl, WorldTile>("first_pressed_tile");
-        static readonly AccessTools.FieldRef<PlayerControl, TileType> FirstType =
-            AccessTools.FieldRefAccess<PlayerControl, TileType>("first_pressed_type");
-        static readonly AccessTools.FieldRef<PlayerControl, TopTileType> FirstTopType =
-            AccessTools.FieldRefAccess<PlayerControl, TopTileType>("first_pressed_top_type");
-
-        static readonly System.Action<PlayerControl, Vector2Int, GodPower, bool> ClickedFinal =
-            AccessTools.MethodDelegate<System.Action<PlayerControl, Vector2Int, GodPower, bool>>(
-                AccessTools.Method(typeof(PlayerControl), "clickedFinal"));
-
         class Stroke
         {
             public WorldTile FirstTile;
@@ -87,20 +74,20 @@ namespace WorldBoxMP
 
             PlayerControl pc = World.world.player_control;
             string hostBrush = Config.current_brush;
-            float hostTimer = ClickTimer(pc);
-            WorldTile hostTile = FirstTile(pc);
-            TileType hostType = FirstType(pc);
-            TopTileType hostTopType = FirstTopType(pc);
+            float hostTimer = Access.ClickTimer(pc);
+            WorldTile hostTile = Access.FirstTile(pc);
+            TileType hostType = Access.FirstType(pc);
+            TopTileType hostTopType = Access.FirstTopType(pc);
             ApplyingRemote = true;
             try
             {
                 if (!string.IsNullOrEmpty(brush)) Config.current_brush = brush;
-                ClickTimer(pc) = stroke.Timer;
-                FirstTile(pc) = stroke.FirstTile;
-                FirstType(pc) = stroke.FirstType;
-                FirstTopType(pc) = stroke.FirstTopType;
+                Access.ClickTimer(pc) = stroke.Timer;
+                Access.FirstTile(pc) = stroke.FirstTile;
+                Access.FirstType(pc) = stroke.FirstType;
+                Access.FirstTopType(pc) = stroke.FirstTopType;
 
-                ClickedFinal(pc, new Vector2Int(x, y), power, true);
+                Access.ClickedFinal(pc, new Vector2Int(x, y), power, true);
                 Debug.Log("[WorldBoxMP] remote power " + id + " at " + x + ":" + y);
                 if (Net.Current != null)
                 {
@@ -108,19 +95,19 @@ namespace WorldBoxMP
                     AppliedBySlot[Net.Current.Slot] = n + 1;
                 }
 
-                stroke.Timer = ClickTimer(pc);
-                stroke.FirstTile = FirstTile(pc);
-                stroke.FirstType = FirstType(pc);
-                stroke.FirstTopType = FirstTopType(pc);
+                stroke.Timer = Access.ClickTimer(pc);
+                stroke.FirstTile = Access.FirstTile(pc);
+                stroke.FirstType = Access.FirstType(pc);
+                stroke.FirstTopType = Access.FirstTopType(pc);
             }
             finally
             {
                 ApplyingRemote = false;
                 Config.current_brush = hostBrush;
-                ClickTimer(pc) = hostTimer;
-                FirstTile(pc) = hostTile;
-                FirstType(pc) = hostType;
-                FirstTopType(pc) = hostTopType;
+                Access.ClickTimer(pc) = hostTimer;
+                Access.FirstTile(pc) = hostTile;
+                Access.FirstType(pc) = hostType;
+                Access.FirstTopType(pc) = hostTopType;
             }
         }
     }

@@ -7,9 +7,7 @@ namespace WorldBoxMP
     public static class LobbyTest
     {
         public static bool On;
-        public static string LastLeave;
         static float _clock = -1f;
-        static float _kickAt = -1f;
         static string _kickedKey;
         static int _phase;
         static float _retryTimer;
@@ -19,7 +17,6 @@ namespace WorldBoxMP
         static int _humans;
         static float _sawFourAt;
         static bool _spawned;
-        static bool _counted;
         static bool _shot;
         static float _lobbyAt = -1f;
         static string _password;
@@ -160,22 +157,22 @@ namespace WorldBoxMP
                 PasswordWindow.Enter(_password);
                 return;
             }
-            if (!Net.IsClientConnected && Net.Role == Role.None && _phase >= 1 && Roster.LocalSlot == 0 && LastLeave != null)
+            if (!Net.IsClientConnected && Net.Role == Role.None && _phase >= 1 && Roster.LocalSlot == 0 && TestHooks.LastLeave != null)
             {
                 _retryTimer -= dt;
                 if (_retryTimer > 0f) return;
                 _retryTimer = 6f;
-                _attempts.Add(LastLeave);
-                Debug.Log("[WorldBoxMP] test: lobby player 3: left (" + LastLeave + "), joining again");
-                if (LastLeave == "wrong_password")
+                _attempts.Add(TestHooks.LastLeave);
+                Debug.Log("[WorldBoxMP] test: lobby player 3: left (" + TestHooks.LastLeave + "), joining again");
+                if (TestHooks.LastLeave == "wrong_password")
                 {
-                    LastLeave = null;
+                    TestHooks.LastLeave = null;
                     Check("player 3: asked for the password", PasswordWindow.Pending);
                     ScreenCapture.CaptureScreenshot(Path.Combine(TestHarness.UiFolder, "password.png"));
                     _enterNext = true;
                     return;
                 }
-                LastLeave = null;
+                TestHooks.LastLeave = null;
                 if (_attempts.Count > 14) { Report(); return; }
                 if (_password == null) _password = Net.JoinPassword;
                 bool wrong = _attempts.Contains("lobby_full") && !_attempts.Contains("wrong_password");

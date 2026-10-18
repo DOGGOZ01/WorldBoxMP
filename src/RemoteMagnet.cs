@@ -9,10 +9,6 @@ namespace WorldBoxMP
     {
         const string PowerId = "magnet";
 
-        static readonly Action<Actor, bool> FindTile = HarmonyLib.AccessTools.MethodDelegate<Action<Actor, bool>>(HarmonyLib.AccessTools.Method(typeof(Actor), "findCurrentTile"));
-        static readonly Action<Actor, WorldTile, float> SpawnOn = HarmonyLib.AccessTools.MethodDelegate<Action<Actor, WorldTile, float>>(HarmonyLib.AccessTools.Method(typeof(Actor), "spawnOn", new[] { typeof(WorldTile), typeof(float) }));
-        static readonly Func<BaseSimObject, string, float, bool, bool> AddStatus = HarmonyLib.AccessTools.MethodDelegate<Func<BaseSimObject, string, float, bool, bool>>(HarmonyLib.AccessTools.Method(typeof(BaseSimObject), "addStatusEffect", new[] { typeof(string), typeof(float), typeof(bool) }));
-        static readonly HarmonyLib.AccessTools.FieldRef<Actor, Vector3> TargetAngle = HarmonyLib.AccessTools.FieldRefAccess<Actor, Vector3>("target_angle");
         const byte Hold = 1, Release = 2;
 
         static bool _holding;
@@ -152,7 +148,7 @@ namespace WorldBoxMP
                 for (int i = 0; i < h.Units.Count; i++)
                 {
                     Actor a = h.Units[i];
-                    FindTile(a, true);
+                    Access.FindTile(a, true);
                     float x = h.Shown.x + Mathf.Cos(h.Angle + i) * (step * i);
                     float y = h.Shown.y + Mathf.Sin(h.Angle + i) * (step * i);
                     a.current_position = new Vector2(x, y - a.position_height);
@@ -169,13 +165,13 @@ namespace WorldBoxMP
                 a.current_position.y -= a.position_height;
                 Access.InMagnet(a) = false;
                 Access.DirtyTile(a) = true;
-                FindTile(a, true);
-                SpawnOn(a, a.current_tile, a.getActorAsset().default_height);
+                Access.FindTile(a, true);
+                Access.SpawnOn(a, a.current_tile, a.getActorAsset().default_height);
                 a.makeStunned(1f);
-                AddStatus(a, "magnetized", 0f, true);
-                Vector3 angle = TargetAngle(a);
+                Access.AddStatus(a, "magnetized", 0f, true);
+                Vector3 angle = Access.TargetAngle(a);
                 angle.z = 0f;
-                TargetAngle(a) = angle;
+                Access.TargetAngle(a) = angle;
                 if (force.magnitude > 0.1f)
                 {
                     Vector2 v = force + new Vector2(UnityEngine.Random.Range(-0.3f, 0.3f), UnityEngine.Random.Range(-0.3f, 0.3f));
@@ -228,11 +224,6 @@ namespace WorldBoxMP
             Net.Peer?.Send(Msg.Boulder, ms.ToArray());
         }
 
-        static readonly HarmonyLib.AccessTools.FieldRef<Vector2> BallPullFrom =
-            HarmonyLib.AccessTools.StaticFieldRefAccess<Vector2>(HarmonyLib.AccessTools.Field(typeof(Boulder), "_initial_charge_position"));
-        static readonly HarmonyLib.AccessTools.FieldRef<bool> BallCharging =
-            HarmonyLib.AccessTools.StaticFieldRefAccess<bool>(HarmonyLib.AccessTools.Field(typeof(Boulder), "_charge_started"));
-
         public static void HostBall(byte[] data)
         {
             var r = new BinaryReader(new MemoryStream(data));
@@ -240,11 +231,11 @@ namespace WorldBoxMP
             var to = new Vector2(r.ReadSingle(), r.ReadSingle());
             GodPower power = AssetManager.powers.get(BallId);
             if (!Rules.HostAllowsPower(power)) { Rules.Deny(Rules.Of(power), "tip_denied"); return; }
-            Vector2 hostFrom = BallPullFrom();
-            bool hostCharging = BallCharging();
+            Vector2 hostFrom = Access.BallPullFrom();
+            bool hostCharging = Access.BallCharging();
             try
             {
-                BallPullFrom() = from;
+                Access.BallPullFrom() = from;
                 BallReleasedAt = to;
                 EffectsLibrary.spawnAt("fx_boulder", to, 1f);
                 Balls++;
@@ -252,8 +243,8 @@ namespace WorldBoxMP
             finally
             {
                 BallReleasedAt = null;
-                BallPullFrom() = hostFrom;
-                BallCharging() = hostCharging;
+                Access.BallPullFrom() = hostFrom;
+                Access.BallCharging() = hostCharging;
             }
         }
 
@@ -274,8 +265,9 @@ namespace WorldBoxMP
 
         public static Vector2 LastBallStart;
 
-        public static void TestSend(byte what, Vector2 pos, Vector2 force) => Send(what, pos, force);
+#if WBMP_TESTS
         public static void TestSendBall(Vector2 from, Vector2 to) => SendBall(from, to);
+#endif
 
         public static int Balls;
 

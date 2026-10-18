@@ -1,4 +1,3 @@
-"""A tiny RGBA image with putpixel/save(PNG), enough for icon previews (no Pillow)."""
 import struct
 import zlib
 

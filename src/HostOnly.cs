@@ -12,8 +12,6 @@ namespace WorldBoxMP
         static readonly HashSet<string> Windows = new HashSet<string> { "world_laws", "world_ages" };
         static readonly HashSet<string> ButtonNames = new HashSet<string> { "world_laws", "ages" };
 
-        static readonly AccessTools.FieldRef<MapBox, WorldLaws> Laws = AccessTools.FieldRefAccess<MapBox, WorldLaws>("world_laws");
-
         static readonly List<KeyValuePair<Button, string>> _buttons = new List<KeyValuePair<Button, string>>();
 
         static void FindButtons()
@@ -98,14 +96,14 @@ namespace WorldBoxMP
 
         public static void ResendLaws() => _lawsSent = null;
 
-        public static WorldLaws LawsOf(MapBox w) => w != null ? Laws(w) : null;
+        public static WorldLaws LawsOf(MapBox w) => w != null ? Access.Laws(w) : null;
 
         static void HostSendLaws()
         {
             _lawsTimer -= Time.unscaledDeltaTime;
             if (_lawsTimer > 0f) return;
             _lawsTimer = 1f;
-            WorldLaws laws = World.world != null ? Laws(World.world) : null;
+            WorldLaws laws = World.world != null ? Access.Laws(World.world) : null;
             if (laws?.list == null) return;
             var sb = new StringBuilder();
             foreach (PlayerOptionData o in laws.list) sb.Append(o.name).Append('=').Append(o.boolVal).Append(',').Append(o.intVal).Append(',').Append(o.stringVal).Append(';');
@@ -129,7 +127,7 @@ namespace WorldBoxMP
 
         public static void ClientReceiveLaws(byte[] data)
         {
-            WorldLaws laws = World.world != null ? Laws(World.world) : null;
+            WorldLaws laws = World.world != null ? Access.Laws(World.world) : null;
             if (laws?.dict == null) return;
             var r = new BinaryReader(new MemoryStream(data));
             int n = r.ReadInt32();

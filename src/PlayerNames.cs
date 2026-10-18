@@ -37,7 +37,7 @@ namespace WorldBoxMP
         {
             get
             {
-                if (!string.IsNullOrEmpty(TestHarness.Name)) return TestHarness.Name;
+                if (!string.IsNullOrEmpty(TestHooks.Name)) return TestHooks.Name;
                 try
                 {
                     if (SteamSession.Available && !string.IsNullOrEmpty(SteamClient.Name))
@@ -138,7 +138,6 @@ namespace WorldBoxMP
                 return;
             }
             EnsureStyle();
-            bool firstPerson = Worldfall.Begin();
             HashSet<Actor> mine = ControllableUnit.getCotrolledUnits();
             if (mine != null)
             {
@@ -147,7 +146,7 @@ namespace WorldBoxMP
                 foreach (Actor item in mine)
                 {
                     if (Net.Role == Role.Host && RemotePossession.IsRemote(item)) continue;
-                    DrawFor(item, localName, own, firstPerson);
+                    DrawFor(item, localName, own);
                 }
             }
             foreach (PlayerInfo p in Roster.Players)
@@ -157,45 +156,31 @@ namespace WorldBoxMP
                 foreach (long id in p.Units)
                 {
                     Actor actor = World.world.units.get(id);
-                    DrawFor(actor, p.Name, color, firstPerson);
+                    DrawFor(actor, p.Name, color);
                 }
             }
         }
 
-        private static void DrawFor(Actor a, string name, Color color, bool firstPerson)
+        private static void DrawFor(Actor a, string name, Color color)
         {
             if (a == null || !a.isAlive() || string.IsNullOrEmpty(name) || a.isInsideSomething())
             {
                 return;
             }
-            float x;
-            float y;
-            float size;
-            float alpha;
-            if (firstPerson)
+            Camera main = Camera.main;
+            if (main == null)
             {
-                if (!Worldfall.Place(a, out x, out y, out size, out alpha))
-                {
-                    return;
-                }
+                return;
             }
-            else
+            Vector3 vector = main.WorldToScreenPoint(a.getHeadOffsetPositionForFunRendering());
+            if (vector.z < 0f)
             {
-                Camera main = Camera.main;
-                if (main == null)
-                {
-                    return;
-                }
-                Vector3 vector = main.WorldToScreenPoint(a.getHeadOffsetPositionForFunRendering());
-                if (vector.z < 0f)
-                {
-                    return;
-                }
-                x = vector.x;
-                y = (float)Screen.height - vector.y - 10f * Scale;
-                size = 15f * Scale;
-                alpha = 1f;
+                return;
             }
+            float x = vector.x;
+            float y = (float)Screen.height - vector.y - 10f * Scale;
+            float size = 15f * Scale;
+            float alpha = 1f;
             if (x < -200f || y < -50f || x > (float)(Screen.width + 200) || y > (float)(Screen.height + 50))
             {
                 return;
@@ -234,153 +219,6 @@ namespace WorldBoxMP
                 };
                 _style.padding = new RectOffset(0, 0, 0, 0);
                 _style.margin = new RectOffset(0, 0, 0, 0);
-            }
-        }
-
-        private static class Worldfall
-        {
-            private static bool _looked;
-
-            private static bool _broken;
-
-            private static PropertyInfo _instance;
-
-            private static FieldInfo _active;
-
-            private static PropertyInfo _shownFrame;
-
-            private static PropertyInfo _shown;
-
-            private static PropertyInfo _host;
-
-            private static MethodInfo _starHead;
-
-            private static MethodInfo _project;
-
-            private static FieldInfo _width;
-
-            private static FieldInfo _height;
-
-            private static FieldInfo _focal;
-
-            private static object _mod;
-
-            private static object _projection;
-
-            private static Actor _hostActor;
-
-            private static int _w;
-
-            private static int _h;
-
-            private static float _f;
-
-            private static readonly object[] _headArgs = new object[2];
-
-            private static readonly object[] _projectArgs = new object[6];
-
-            public static bool Begin()
-            {
-                if (_broken)
-                {
-                    return false;
-                }
-                try
-                {
-                    if (!_looked)
-                    {
-                        _looked = true;
-                        Type type = AccessTools.TypeByName("FirstPerson.WorldBoxMod");
-                        Type type2 = AccessTools.TypeByName("FirstPerson.Core.FrameProjection");
-                        if (type == null || type2 == null)
-                        {
-                            _broken = true;
-                            return false;
-                        }
-                        _instance = AccessTools.Property(type, "Instance");
-                        _active = AccessTools.Field(type, "_active");
-                        _shownFrame = AccessTools.Property(type, "ShownFrame");
-                        _shown = AccessTools.Property(type, "Shown");
-                        _host = AccessTools.Property(type, "Host");
-                        _starHead = AccessTools.Method(type, "StarHead");
-                        _project = AccessTools.Method(type2, "Project");
-                        _width = AccessTools.Field(type2, "Width");
-                        _height = AccessTools.Field(type2, "Height");
-                        _focal = AccessTools.Field(type2, "Focal");
-                        if (_instance == null || _active == null || _shownFrame == null || _shown == null || _starHead == null || _project == null || _width == null || _height == null)
-                        {
-                            Debug.Log("[WorldBoxMP] Worldfall found, but not the parts needed for names in first person");
-                            _broken = true;
-                            return false;
-                        }
-                        Debug.Log("[WorldBoxMP] Worldfall found: names are drawn in first person too");
-                    }
-                    _mod = _instance.GetValue(null, null);
-                    if (_mod == null || !(bool)_active.GetValue(_mod) || _shownFrame.GetValue(_mod, null) == null)
-                    {
-                        return false;
-                    }
-                    _projection = _shown.GetValue(_mod, null);
-                    _w = (int)_width.GetValue(_projection);
-                    _h = (int)_height.GetValue(_projection);
-                    _f = ((_focal != null) ? ((float)_focal.GetValue(_projection)) : ((float)_h));
-                    _hostActor = ((_host != null) ? (_host.GetValue(_mod, null) as Actor) : null);
-                    return _w > 0 && _h > 0;
-                }
-                catch (Exception ex)
-                {
-                    _broken = true;
-                    Debug.Log("[WorldBoxMP] names in first person turned off: " + ex.GetBaseException().Message);
-                    return false;
-                }
-            }
-
-            public static bool Place(Actor a, out float x, out float y, out float size, out float alpha)
-            {
-                x = (y = (size = (alpha = 0f)));
-                if (a == _hostActor)
-                {
-                    return false;
-                }
-                try
-                {
-                    _headArgs[0] = a;
-                    _headArgs[1] = null;
-                    if (!(bool)_starHead.Invoke(_mod, _headArgs))
-                    {
-                        return false;
-                    }
-                    Vector3 vector = (Vector3)_headArgs[1];
-                    _projectArgs[0] = vector.x;
-                    _projectArgs[1] = vector.y;
-                    _projectArgs[2] = vector.z + 0.32f;
-                    _projectArgs[3] = null;
-                    _projectArgs[4] = null;
-                    _projectArgs[5] = null;
-                    if (!(bool)_project.Invoke(_projection, _projectArgs))
-                    {
-                        return false;
-                    }
-                    float num = (float)_projectArgs[3];
-                    float num2 = (float)_projectArgs[4];
-                    float num3 = (float)_projectArgs[5];
-                    alpha = 1f - Mathf.Clamp01((num3 - 45f) / 15f);
-                    if (alpha <= 0f)
-                    {
-                        return false;
-                    }
-                    x = num / (float)_w * (float)Screen.width;
-                    y = num2 / (float)_h * (float)Screen.height;
-                    float num4 = _f / (float)_h * (float)Screen.height;
-                    size = Mathf.Clamp(0.09f * num4 / num3, 11f * Scale, 30f * Scale);
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    _broken = true;
-                    Debug.Log("[WorldBoxMP] names in first person turned off: " + ex.GetBaseException().Message);
-                    return false;
-                }
             }
         }
     }

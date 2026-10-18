@@ -10,15 +10,6 @@ namespace WorldBoxMP
     {
         const string Possessed = "possessed";
 
-        static readonly AccessTools.FieldRef<BaseSimObject, Dictionary<string, Status>> ActiveStatuses =
-            AccessTools.FieldRefAccess<BaseSimObject, Dictionary<string, Status>>("_active_status_dict");
-        static readonly AccessTools.FieldRef<BaseSimObject, bool> HasAnyStatus =
-            AccessTools.FieldRefAccess<BaseSimObject, bool>("_has_any_status_cached");
-        static readonly Action<BaseSimObject> UpdateCachedStatuses =
-            AccessTools.MethodDelegate<Action<BaseSimObject>>(AccessTools.Method(typeof(BaseSimObject), "updateCachedStatusEffects"));
-        static readonly Action<Status, float> UpdateAnimationFrame =
-            AccessTools.MethodDelegate<Action<Status, float>>(AccessTools.Method(typeof(Status), "updateAnimationFrame"));
-
         static readonly Dictionary<long, int> _actors = new Dictionary<long, int>();
         static readonly Dictionary<long, int> _buildings = new Dictionary<long, int>();
         static readonly HashSet<long> _seen = new HashSet<long>();
@@ -127,7 +118,7 @@ namespace WorldBoxMP
 
         static void Apply(BaseSimObject o, Dictionary<string, float> wanted)
         {
-            Dictionary<string, Status> active = ActiveStatuses(o);
+            Dictionary<string, Status> active = Access.ActiveStatuses(o);
             var remove = new List<Status>();
             foreach (var kv in active)
                 if (kv.Key != Possessed && !wanted.ContainsKey(kv.Key)) remove.Add(kv.Value);
@@ -148,8 +139,8 @@ namespace WorldBoxMP
                 Status s = World.world.statuses.newStatus(o, asset, kv.Value);
                 active[kv.Key] = s;
             }
-            HasAnyStatus(o) = active.Count > 0;
-            UpdateCachedStatuses(o);
+            Access.HasAnyStatus(o) = active.Count > 0;
+            Access.UpdateCachedStatuses(o);
             o.setStatsDirty();
         }
 
@@ -167,7 +158,7 @@ namespace WorldBoxMP
                     World.world.statuses.removeObject(s);
                     continue;
                 }
-                UpdateAnimationFrame(s, elapsed);
+                Access.UpdateAnimationFrame(s, elapsed);
             }
         }
     }

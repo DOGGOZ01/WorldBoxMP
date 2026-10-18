@@ -10,21 +10,6 @@ namespace WorldBoxMP
 {
     public static class LiveState
     {
-        static readonly Type AiBase = typeof(AiSystemActor).BaseType;
-        static readonly FieldInfo AiTask = AccessTools.Field(AiBase, "task");
-        static readonly FieldInfo AiAction = AccessTools.Field(AiBase, "action");
-        static readonly FieldInfo AiActionIndex = AccessTools.Field(AiBase, "action_index");
-        static readonly AccessTools.FieldRef<Actor, AiSystemActor> ActorAi = AccessTools.FieldRefAccess<Actor, AiSystemActor>("ai");
-        static readonly AccessTools.FieldRef<Actor, double> SocialTween = AccessTools.FieldRefAccess<Actor, double>("timestamp_tween_session_social");
-        static readonly AccessTools.FieldRef<Actor, double> AteAt = AccessTools.FieldRefAccess<Actor, double>("timestamp_session_ate_food");
-        static readonly AccessTools.FieldRef<Actor, string> AteWhat = AccessTools.FieldRefAccess<Actor, string>("ate_last_item_id");
-        static readonly AccessTools.FieldRef<Actor, WorldTile> BehTileTarget = AccessTools.FieldRefAccess<Actor, WorldTile>("beh_tile_target");
-        static readonly AccessTools.FieldRef<City, City> TargetAttackCity = AccessTools.FieldRefAccess<City, City>("target_attack_city");
-        static readonly AccessTools.FieldRef<City, Kingdom> BeingCapturedBy = AccessTools.FieldRefAccess<City, Kingdom>("being_captured_by");
-        static readonly AccessTools.FieldRef<BehaviourActionActor, bool> Socialize = AccessTools.FieldRefAccess<BehaviourActionActor, bool>("socialize");
-        static readonly FieldInfo DeathsCivs = AccessTools.Field(typeof(BattleContainer), "_deaths_civs");
-        static readonly FieldInfo DeathsMobs = AccessTools.Field(typeof(BattleContainer), "_deaths_mobs");
-
         static readonly Dictionary<long, string> _sentAi = new Dictionary<long, string>();
         static readonly Dictionary<long, string> _sentCity = new Dictionary<long, string>();
         static readonly Dictionary<long, int> _sentCaptain = new Dictionary<long, int>();
@@ -47,7 +32,7 @@ namespace WorldBoxMP
             _log.Clear();
         }
 
-        static AiSystemActor Ai(Actor a) => ActorAi(a);
+        static AiSystemActor Ai(Actor a) => Access.ActorAi(a);
 
         public static void ResendActor(long id) => _sentAi.Remove(id);
 
@@ -55,9 +40,9 @@ namespace WorldBoxMP
         {
             AiSystemActor ai = Ai(a);
             if (ai == null) return "";
-            var task = AiTask.GetValue(ai) as BehaviourTaskActor;
+            var task = Access.AiTask.GetValue(ai) as BehaviourTaskActor;
             if (task == null) return "";
-            return task.id + "|" + (int)AiActionIndex.GetValue(ai);
+            return task.id + "|" + (int)Access.AiActionIndex.GetValue(ai);
         }
 
         public static void Write(BinaryWriter w, float elapsed)
@@ -94,8 +79,8 @@ namespace WorldBoxMP
                 var captains = new List<KeyValuePair<long, int>>();
                 foreach (City c in World.world.cities)
                 {
-                    City target = TargetAttackCity(c);
-                    Kingdom capturer = BeingCapturedBy(c);
+                    City target = Access.TargetAttackCity(c);
+                    Kingdom capturer = Access.BeingCapturedBy(c);
                     string key = (target != null && target.isAlive() ? target.getID() : -1) + "|" +
                                  (capturer != null && capturer.isAlive() ? capturer.getID() : -1) + "|" + c.last_visual_capture_ticks;
                     if (!_sentCity.TryGetValue(c.getID(), out string was) || was != key)
@@ -106,7 +91,7 @@ namespace WorldBoxMP
                     if (c.army != null && c.army.hasCaptain())
                     {
                         Actor cap = c.army.getCaptain();
-                        WorldTile dest = cap != null ? BehTileTarget(cap) : null;
+                        WorldTile dest = cap != null ? Access.BehTileTarget(cap) : null;
                         int tile = dest != null ? dest.data.tile_id : -1;
                         if (cap != null && (!_sentCaptain.TryGetValue(cap.getID(), out int t) || t != tile))
                         {
@@ -149,8 +134,8 @@ namespace WorldBoxMP
                 Actor a = world.units.get(r.ReadInt64());
                 string food = r.ReadString();
                 if (a == null || AssetManager.resources.get(food) == null) continue;
-                AteWhat(a) = food;
-                AteAt(a) = world.getCurSessionTime();
+                Access.AteWhat(a) = food;
+                Access.AteAt(a) = world.getCurSessionTime();
             }
 
             if (r.ReadBoolean())
@@ -162,8 +147,8 @@ namespace WorldBoxMP
                     string[] parts = r.ReadString().Split('|');
                     if (c == null || parts.Length < 3) continue;
                     long target = long.Parse(parts[0]), capturer = long.Parse(parts[1]);
-                    TargetAttackCity(c) = target >= 0 ? world.cities.get(target) : null;
-                    BeingCapturedBy(c) = capturer >= 0 ? world.kingdoms.get(capturer) : null;
+                    Access.TargetAttackCity(c) = target >= 0 ? world.cities.get(target) : null;
+                    Access.BeingCapturedBy(c) = capturer >= 0 ? world.kingdoms.get(capturer) : null;
                     c.last_visual_capture_ticks = int.Parse(parts[2]);
                     Applied++;
                 }
@@ -173,7 +158,7 @@ namespace WorldBoxMP
                 {
                     Actor cap = world.units.get(r.ReadInt64());
                     int tile = r.ReadInt32();
-                    if (cap != null) BehTileTarget(cap) = tile >= 0 && tile < tiles.Length ? tiles[tile] : null;
+                    if (cap != null) Access.BehTileTarget(cap) = tile >= 0 && tile < tiles.Length ? tiles[tile] : null;
                 }
             }
 
@@ -204,8 +189,8 @@ namespace WorldBoxMP
         {
             AiSystemActor ai = Ai(a);
             if (ai == null) return;
-            var wasAction = AiAction.GetValue(ai) as BehaviourActionActor;
-            bool wasSocial = wasAction != null && Socialize(wasAction);
+            var wasAction = Access.AiAction.GetValue(ai) as BehaviourActionActor;
+            bool wasSocial = wasAction != null && Access.Socialize(wasAction);
             BehaviourTaskActor task = null;
             BehaviourActionActor action = null;
             int index = 0;
@@ -216,10 +201,10 @@ namespace WorldBoxMP
                 int.TryParse(key.Substring(bar + 1), out index);
                 if (task != null && index >= 0 && index < task.list.Count) action = task.list[index];
             }
-            AiTask.SetValue(ai, task);
-            AiAction.SetValue(ai, action);
-            AiActionIndex.SetValue(ai, index);
-            if (action != null && Socialize(action) && !wasSocial) SocialTween(a) = World.world.getCurSessionTime();
+            Access.AiTask.SetValue(ai, task);
+            Access.AiAction.SetValue(ai, action);
+            Access.AiActionIndex.SetValue(ai, index);
+            if (action != null && Access.Socialize(action) && !wasSocial) Access.SocialTween(a) = World.world.getCurSessionTime();
             Applied++;
         }
 
@@ -239,7 +224,7 @@ namespace WorldBoxMP
                 near = new BattleContainer { tile = tile };
                 all.Add(near);
             }
-            FieldInfo f = sapient ? DeathsCivs : DeathsMobs;
+            FieldInfo f = sapient ? Access.DeathsCivs : Access.DeathsMobs;
             f.SetValue(near, (int)f.GetValue(near) + 1);
             if (near.tile != tile && (Toolbox.SquaredDistTile(near.tile, tile) < 25f || near.getDeathsTotal() < 3)) near.tile = tile;
             near.timer = 1.2f;
@@ -253,13 +238,13 @@ namespace WorldBoxMP
             foreach (Actor a in World.world.units)
             {
                 AiSystemActor ai = a.isAlive() ? Ai(a) : null;
-                var action = ai != null ? AiAction.GetValue(ai) as BehaviourActionActor : null;
-                if (action != null && Socialize(action)) talking++;
+                var action = ai != null ? Access.AiAction.GetValue(ai) as BehaviourActionActor : null;
+                if (action != null && Access.Socialize(action)) talking++;
             }
             foreach (City c in World.world.cities)
             {
-                if (TargetAttackCity(c) != null) targets++;
-                if (BeingCapturedBy(c) != null) capturing++;
+                if (Access.TargetAttackCity(c) != null) targets++;
+                if (Access.BeingCapturedBy(c) != null) capturing++;
             }
             int battles = BattleKeeperManager.get()?.Count ?? 0;
             return " talking=" + talking + " battles=" + battles + " war_targets=" + targets + " capturing=" + capturing;

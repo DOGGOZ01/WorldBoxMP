@@ -17,25 +17,11 @@ namespace WorldBoxMP
             public bool Moving;
         }
 
-        static readonly Action<MapBox> CheckDirtyUnits =
-            AccessTools.MethodDelegate<Action<MapBox>>(AccessTools.Method(typeof(MapBox), "checkDirtyUnits"));
-        static readonly Action<MapBox> CheckDirtyMetaObjects =
-            AccessTools.MethodDelegate<Action<MapBox>>(AccessTools.Method(typeof(MapBox), "checkDirtyMetaObjects"));
-        static readonly Action<MapBox> CheckAnyMetaAddedRemoved =
-            AccessTools.MethodDelegate<Action<MapBox>>(AccessTools.Method(typeof(MapBox), "checkAnyMetaAddedRemoved"));
-
-        static readonly AccessTools.FieldRef<MapBox, List<MapLayer>> MapLayers =
-            AccessTools.FieldRefAccess<MapBox, List<MapLayer>>("_map_layers");
-
         static readonly string[] VisualBehaviours = { "zones_meta_data_visualizer", "waves", "clouds" };
 
         static readonly Dictionary<long, Actor> _possessedReloads = new Dictionary<long, Actor>();
         static readonly Dictionary<long, List<Sample>> _tracks = new Dictionary<long, List<Sample>>();
         static readonly List<long> _lost = new List<long>();
-        static readonly Action<Actor, float> UpdateRotations =
-            AccessTools.MethodDelegate<Action<Actor, float>>(AccessTools.Method(typeof(Actor), "updateRotations"));
-        static readonly Action<Actor, float> UpdateFlipRotation =
-            AccessTools.MethodDelegate<Action<Actor, float>>(AccessTools.Method(typeof(Actor), "updateFlipRotation"));
         static double _packetTime;
         static double _newestHostTime = -1;
         static double _newestLocalTime;
@@ -49,16 +35,8 @@ namespace WorldBoxMP
         static readonly Queue<byte[]> _pending = new Queue<byte[]>();
         static int _failures;
 
-        static readonly AccessTools.FieldRef<MapBox, WorldTile[]> TilesList =
-            AccessTools.FieldRefAccess<MapBox, WorldTile[]>("tiles_list");
-        static readonly Action<ActorManager, Actor> ScheduleActorDestroy =
-            AccessTools.MethodDelegate<Action<ActorManager, Actor>>(AccessTools.Method(typeof(ActorManager), "scheduleDestroyOnPlay"));
         static readonly Dictionary<long, Actor> _replacedOld = new Dictionary<long, Actor>();
         static readonly Dictionary<Actor, Actor> _replaced = new Dictionary<Actor, Actor>();
-        static readonly Action<Building> RemoveBuildingFinal =
-            AccessTools.MethodDelegate<Action<Building>>(AccessTools.Method(typeof(Building), "removeBuildingFinal"));
-        static readonly Action<MapBox> CheckObjectsToDestroy =
-            AccessTools.MethodDelegate<Action<MapBox>>(AccessTools.Method(typeof(MapBox), "checkObjectsToDestroy"));
 
         public static int Failures => _failures;
 
@@ -127,10 +105,10 @@ namespace WorldBoxMP
             }
             world.checkSimManagerLists();
             world.units.prepareForMetaChecks();
-            CheckDirtyUnits(world);
-            CheckDirtyMetaObjects(world);
-            CheckAnyMetaAddedRemoved(world);
-            foreach (MapLayer layer in MapLayers(World.world))
+            Access.CheckDirtyUnits(world);
+            Access.CheckDirtyMetaObjects(world);
+            Access.CheckAnyMetaAddedRemoved(world);
+            foreach (MapLayer layer in Access.MapLayers(World.world))
             {
                 try { layer.draw(Time.deltaTime); }
                 catch (Exception e) { LayerFailed(layer, e); }
@@ -188,11 +166,10 @@ namespace WorldBoxMP
             OnHostTime(r.ReadDouble());
             PlayerEdits.HostWorld(r.ReadString(), r.ReadBoolean());
             EraSync.Apply(r.ReadString());
-            WorldfallBridge.SetDayClock(r.ReadDouble());
             bool meta = r.ReadBoolean();
             if (meta) MetaSync.Read(r);
 
-            WorldTile[] tiles = TilesList(world);
+            WorldTile[] tiles = Access.ClientSyncTilesList(world);
             int tileCount = r.ReadInt32();
             for (int i = 0; i < tileCount; i++)
             {
@@ -209,7 +186,7 @@ namespace WorldBoxMP
             for (int i = 0; i < goneBuildings; i++)
             {
                 Building b = world.buildings.get(r.ReadInt64());
-                if (b != null && Access.BuildingData(b).state != BuildingState.Removed) RemoveBuildingFinal(b);
+                if (b != null && Access.BuildingData(b).state != BuildingState.Removed) Access.RemoveBuildingFinal(b);
             }
             var newBuildings = new List<BuildingData>();
             int newBuildingCount = r.ReadInt32();
@@ -217,7 +194,7 @@ namespace WorldBoxMP
             {
                 var bd = Json.Read<BuildingData>(r.ReadString());
                 Building old = world.buildings.get(bd.id);
-                if (old != null && Access.BuildingData(old).state != BuildingState.Removed) RemoveBuildingFinal(old);
+                if (old != null && Access.BuildingData(old).state != BuildingState.Removed) Access.RemoveBuildingFinal(old);
                 newBuildings.Add(bd);
             }
 
@@ -229,7 +206,7 @@ namespace WorldBoxMP
                 if (a != null)
                 {
                     RemotePossession.OnClientActorRemoved(a);
-                    ScheduleActorDestroy(world.units, a);
+                    Access.ScheduleActorDestroy(world.units, a);
                 }
                 _tracks.Remove(id);
             }
@@ -244,12 +221,12 @@ namespace WorldBoxMP
                 {
                     if (ControllableUnit.isControllingUnit(old)) _possessedReloads[ad.id] = old;
                     _replacedOld[ad.id] = old;
-                    ScheduleActorDestroy(world.units, old);
+                    Access.ScheduleActorDestroy(world.units, old);
                 }
                 newActors.Add(ad);
             }
 
-            CheckObjectsToDestroy(world);
+            Access.CheckObjectsToDestroy(world);
 
             foreach (BuildingData bd in newBuildings)
             {
@@ -338,9 +315,6 @@ namespace WorldBoxMP
             if (_failures <= 30) Debug.Log("[WorldBoxMP] stream: could not load " + what);
         }
 
-        static readonly AccessTools.FieldRef<MapBox, BurnedTilesLayer> BurnedLayer =
-            AccessTools.FieldRefAccess<MapBox, BurnedTilesLayer>("burned_layer");
-
         static void ApplyTile(WorldTile tile, string main, string top, bool fire, bool frozen, byte burned)
         {
             TileType mainType = AssetManager.tiles.get(main);
@@ -360,7 +334,7 @@ namespace WorldBoxMP
             if (tile.burned_stages != burned)
             {
                 tile.burned_stages = burned;
-                BurnedLayer(World.world)?.setTileDirty(tile);
+                Access.BurnedLayer(World.world)?.setTileDirty(tile);
             }
             World.world.setTileDirty(tile);
         }
@@ -381,16 +355,11 @@ namespace WorldBoxMP
             return s;
         }
 
-        static readonly AccessTools.FieldRef<float> AnimTimeSimulation =
-            AccessTools.StaticFieldRefAccess<float>(AccessTools.Field(typeof(AnimationHelper), "_time_simulation"));
-        static readonly AccessTools.FieldRef<float> AnimTimeSession =
-            AccessTools.StaticFieldRefAccess<float>(AccessTools.Field(typeof(AnimationHelper), "_time_session"));
-
         static void AdvanceAnimations(float dt)
         {
             float speed = Config.time_scale_asset != null ? Config.time_scale_asset.multiplier : 1f;
-            if (!Config.paused) AnimTimeSimulation() = (AnimTimeSimulation() + dt * speed) % 100f;
-            AnimTimeSession() = (AnimTimeSession() + dt) % 100f;
+            if (!Config.paused) Access.AnimTimeSimulation() = (Access.AnimTimeSimulation() + dt * speed) % 100f;
+            Access.AnimTimeSession() = (Access.AnimTimeSession() + dt) % 100f;
         }
 
         static void Step(string name, Action step)
@@ -537,8 +506,8 @@ namespace WorldBoxMP
                 foreach (Actor a in World.world.units)
                 {
                     if (!a.isAlive() || a.isInsideSomething()) continue;
-                    UpdateFlipRotation(a, elapsed);
-                    if (rotate > 0f) UpdateRotations(a, rotate);
+                    Access.UpdateFlipRotation(a, elapsed);
+                    if (rotate > 0f) Access.UpdateRotations(a, rotate);
                 }
             }
             catch (Exception e)

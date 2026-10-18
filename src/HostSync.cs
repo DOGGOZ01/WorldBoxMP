@@ -157,7 +157,6 @@ namespace WorldBoxMP
             w.Write(Config.time_scale_asset != null ? Config.time_scale_asset.id : "x1");
             w.Write(Config.paused);
             w.Write(EraSync.HostAge());
-            w.Write(WorldfallBridge.DayClock);
 
             float slow = 1f / Flow.Scale;
             bool fullMeta = _metaTimer >= 1f * slow || _checkTimer >= 2f * slow || MetaSync.HasListRequests;

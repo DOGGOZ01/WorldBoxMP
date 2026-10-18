@@ -1,7 +1,7 @@
 {
   "name": "WorldBoxMP",
   "author": "DOGGOZ01",
-  "version": "0.17.7",
+  "version": "0.18.0",
   "description": "Online WorldBox for up to four players through Steam lobbies or IP. The host runs the world; the others see it live and use god powers. Lobby browser, invite codes, passwords, chat and pings.",
   "GUID": "doggoz01.worldboxmp"
 }

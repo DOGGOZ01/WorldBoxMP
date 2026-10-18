@@ -17,15 +17,13 @@ namespace WorldBoxMP
         const int MaxPerTick = 40;
         static readonly List<Rec> _pending = new List<Rec>();
         static int _inTileOverload;
-        static int _external;
         static bool _replaying;
-        static bool _worldfallPatched;
 
         public static int MuteDepth;
 
         public static int Sent, Played;
 
-        static bool Recording => HostSync.Tracking && _external == 0;
+        static bool Recording => HostSync.Tracking;
 
         public static void Reset() => _pending.Clear();
         public static int PendingCount => _pending.Count;
@@ -78,26 +76,6 @@ namespace WorldBoxMP
             }
             finally { _replaying = false; }
         }
-
-        public static void PatchWorldfall(Harmony harmony)
-        {
-            if (_worldfallPatched) return;
-            _worldfallPatched = true;
-            try
-            {
-                var m = AccessTools.Method(AccessTools.TypeByName("FirstPerson.Sounds"), "PlayAt");
-                if (m == null) return;
-                harmony.Patch(m, new HarmonyMethod(typeof(SoundSync), nameof(ExternalPrefix)),
-                    finalizer: new HarmonyMethod(typeof(SoundSync), nameof(ExternalFinalizer)));
-            }
-            catch (System.Exception e)
-            {
-                Debug.Log("[WorldBoxMP] could not separate Worldfall sounds: " + e.GetBaseException().Message);
-            }
-        }
-
-        static void ExternalPrefix() => _external++;
-        static void ExternalFinalizer() => _external--;
 
         static bool ClientMutes => Net.IsClientConnected && MuteDepth > 0 && !_replaying;
 

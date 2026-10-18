@@ -19,7 +19,6 @@ namespace WorldBoxMP
         Unpossess = 7,
         PossessInput = 8,
         Names = 9,
-        Look = 10,
         MetaCheck = 11,
         MetaRepair = 12,
         Ping = 13,
@@ -138,11 +137,11 @@ namespace WorldBoxMP
         }
 
         public override long PendingBytes => Interlocked.Read(ref _throttledBytes);
-        public override int SendRate => TestHarness.RateKiBps > 0 ? TestHarness.RateKiBps * 1024 : 0;
+        public override int SendRate => TestHooks.RateKiBps > 0 ? TestHooks.RateKiBps * 1024 : 0;
 
         public override void SendUnreliable(Msg type, byte[] data)
         {
-            if (TestHarness.RateKiBps > 0 && PendingBytes > TestHarness.RateKiBps * 1024 / 10) return;
+            if (TestHooks.RateKiBps > 0 && PendingBytes > TestHooks.RateKiBps * 1024 / 10) return;
             Send(type, data);
         }
 
@@ -151,7 +150,7 @@ namespace WorldBoxMP
             NetStats.CountOut(data);
             if (_closed) return;
             data = data ?? new byte[0];
-            if (TestHarness.RateKiBps > 0)
+            if (TestHooks.RateKiBps > 0)
             {
                 var frame = new byte[data.Length + 5];
                 BitConverter.GetBytes(data.Length + 1).CopyTo(frame, 0);
@@ -196,7 +195,7 @@ namespace WorldBoxMP
                     lock (_sendLock) _stream.Write(frame, 0, frame.Length);
                     Interlocked.Add(ref _throttledBytes, -frame.Length);
                     sent += frame.Length;
-                    double rate = TestHarness.RateKiBps * 1024.0;
+                    double rate = TestHooks.RateKiBps * 1024.0;
                     double ahead = sent / rate - clock.Elapsed.TotalSeconds;
                     if (ahead > 0) Thread.Sleep((int)(ahead * 1000));
                     if (clock.Elapsed.TotalSeconds > 5) { clock.Restart(); sent = 0; }
@@ -294,7 +293,7 @@ namespace WorldBoxMP
 
     public static class Net
     {
-        public const int ProtocolVersion = 23;
+        public const int ProtocolVersion = 24;
 
         public static Role Role { get; private set; } = Role.None;
         static Peer _peer;
@@ -344,7 +343,7 @@ namespace WorldBoxMP
         {
             var ms = new System.IO.MemoryStream();
             var w = new System.IO.BinaryWriter(ms);
-            w.Write(ProtocolVersion);
+            w.Write(TestHooks.Protocol != 0 ? TestHooks.Protocol : ProtocolVersion);
             w.Write(JoinPassword ?? "");
             return ms.ToArray();
         }
@@ -425,7 +424,6 @@ namespace WorldBoxMP
         {
             try
             {
-                PlayerLook.Clear();
                 OwnUnit.Reset();
                 if (ControllableUnit.isControllingUnit())
                 {

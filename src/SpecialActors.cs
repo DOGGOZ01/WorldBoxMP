@@ -35,11 +35,6 @@ namespace WorldBoxMP
         static bool _driving;
         static State _drive;
 
-        static readonly AccessTools.FieldRef<BaseActorComponent, Actor> ComponentActor =
-            AccessTools.FieldRefAccess<BaseActorComponent, Actor>("actor");
-        static readonly Action<ActorManager, Actor> ScheduleActorDestroy =
-            AccessTools.MethodDelegate<Action<ActorManager, Actor>>(AccessTools.Method(typeof(ActorManager), "scheduleDestroyOnPlay"));
-
         public static int Count => Net.Role == Role.Host ? _sent.Count : _mirrors.Count;
 
         public static bool IsSpecial(Actor a) => a != null && a.asset != null && a.asset.skip_save;
@@ -119,7 +114,7 @@ namespace WorldBoxMP
                 Actor a = world.units.get(id);
                 if (a == null) continue;
                 try { MusicBox.inst.stopDrawingSounds(); } catch { }
-                ScheduleActorDestroy(world.units, a);
+                Access.SpecialActorsScheduleActorDestroy(world.units, a);
             }
             int n = r.ReadInt32();
             for (int i = 0; i < n; i++)
@@ -203,7 +198,7 @@ namespace WorldBoxMP
                 {
                     _friendOwned[pActor.getID()] = Net.Current != null ? Net.Current.Slot : _expectedSlot;
                     _expectedAsset = null;
-                    SessionLog.Write("special creature " + pActor.getID() + " " + pActor.asset.id + " belongs to the second player");
+                    SessionLog.Write("special creature " + pActor.getID() + " " + pActor.asset.id + " belongs to a player");
                     return false;
                 }
                 return true;
@@ -217,9 +212,9 @@ namespace WorldBoxMP
             {
                 __state = false;
                 _crabUpdates++;
-                if (Net.Role != Role.Host || _driving || ComponentActor(__instance) == null || !_friendOwned.TryGetValue(ComponentActor(__instance).getID(), out byte slot)) return;
+                if (Net.Role != Role.Host || _driving || Access.ComponentActor(__instance) == null || !_friendOwned.TryGetValue(Access.ComponentActor(__instance).getID(), out byte slot)) return;
                 RemotePossession.FriendInput(slot, out Vector2 move, out Vector2 mouse, out bool attack);
-                BeginDrive(new State { Pos = ComponentActor(__instance).current_position, Beam = attack, Move = move, Moving = move != Vector2.zero, Aim = mouse });
+                BeginDrive(new State { Pos = Access.ComponentActor(__instance).current_position, Beam = attack, Move = move, Moving = move != Vector2.zero, Aim = mouse });
                 __state = true;
             }
 
@@ -229,27 +224,23 @@ namespace WorldBoxMP
             }
         }
 
-        static readonly AccessTools.FieldRef<Vector2> MovementField =
-            AccessTools.StaticFieldRefAccess<Vector2>(AccessTools.Field(typeof(ControllableUnit), "_movement_vector"));
-        static readonly AccessTools.FieldRef<bool> AttackLeftField =
-            AccessTools.StaticFieldRefAccess<bool>(AccessTools.Field(typeof(ControllableUnit), "_attack_pressed_button_left"));
         static Vector2 _savedMove;
         static bool _savedAttack;
 
         static void BeginDrive(State s)
         {
             _drive = s;
-            _savedMove = MovementField();
-            _savedAttack = AttackLeftField();
-            MovementField() = s.Move;
-            AttackLeftField() = s.Beam;
+            _savedMove = Access.MovementField();
+            _savedAttack = Access.AttackLeftField();
+            Access.MovementField() = s.Move;
+            Access.AttackLeftField() = s.Beam;
             _driving = true;
         }
 
         static void EndDrive()
         {
-            MovementField() = _savedMove;
-            AttackLeftField() = _savedAttack;
+            Access.MovementField() = _savedMove;
+            Access.AttackLeftField() = _savedAttack;
             _driving = false;
         }
 

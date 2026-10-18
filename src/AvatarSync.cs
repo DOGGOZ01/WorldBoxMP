@@ -10,15 +10,6 @@ namespace WorldBoxMP
     {
         const byte KindDragon = 1, KindUfo = 2;
 
-        static readonly AccessTools.FieldRef<Dragon, DragonState> DragonStateRef =
-            AccessTools.FieldRefAccess<Dragon, DragonState>("state");
-        static readonly AccessTools.FieldRef<UFO, SpriteAnimation> UfoBeam =
-            AccessTools.FieldRefAccess<UFO, SpriteAnimation>("beamAnim");
-        static readonly AccessTools.FieldRef<UFO, SpriteRenderer> UfoBeamRenderer =
-            AccessTools.FieldRefAccess<UFO, SpriteRenderer>("beamRnd");
-        static readonly Action<SpriteAnimation, float> AnimationUpdate =
-            AccessTools.MethodDelegate<Action<SpriteAnimation, float>>(AccessTools.Method(typeof(SpriteAnimation), "update"));
-
         static readonly Dictionary<long, int> _sent = new Dictionary<long, int>();
         static readonly HashSet<long> _seen = new HashSet<long>();
         static readonly List<long> _drop = new List<long>();
@@ -35,9 +26,9 @@ namespace WorldBoxMP
             kind = 0;
             code = 0;
             Dragon dragon = a.getActorComponent<Dragon>();
-            if (dragon != null) { kind = KindDragon; code = (int)DragonStateRef(dragon); return true; }
+            if (dragon != null) { kind = KindDragon; code = (int)Access.DragonStateRef(dragon); return true; }
             UFO ufo = a.getActorComponent<UFO>();
-            if (ufo != null) { kind = KindUfo; code = UfoBeam(ufo) != null && UfoBeam(ufo).isOn ? 1 : 0; return true; }
+            if (ufo != null) { kind = KindUfo; code = Access.UfoBeam(ufo) != null && Access.UfoBeam(ufo).isOn ? 1 : 0; return true; }
             return false;
         }
 
@@ -93,11 +84,11 @@ namespace WorldBoxMP
                     else if (kind == KindUfo)
                     {
                         UFO ufo = a.getActorComponent<UFO>();
-                        if (ufo == null || UfoBeam(ufo) == null) continue;
+                        if (ufo == null || Access.UfoBeam(ufo) == null) continue;
                         bool on = code == 1;
-                        if (on && !UfoBeam(ufo).isOn) UfoBeam(ufo).stopAt(0, pNow: true);
-                        UfoBeam(ufo).isOn = on;
-                        SpriteRenderer beam = UfoBeamRenderer(ufo);
+                        if (on && !Access.UfoBeam(ufo).isOn) Access.UfoBeam(ufo).stopAt(0, pNow: true);
+                        Access.UfoBeam(ufo).isOn = on;
+                        SpriteRenderer beam = Access.UfoBeamRenderer(ufo);
                         if (beam != null) beam.enabled = on;
                     }
                     Applied++;
@@ -117,11 +108,11 @@ namespace WorldBoxMP
                 if (a.avatar != null && a.isAlive() && !SpecialActors.IsSpecial(a)) _avatars.Add(a);
             foreach (Actor a in _avatars)
             {
-                if (a.sprite_animation != null) AnimationUpdate(a.sprite_animation, elapsed);
+                if (a.sprite_animation != null) Access.AnimationUpdate(a.sprite_animation, elapsed);
                 UFO ufo = a.getActorComponent<UFO>();
-                if (ufo != null && UfoBeam(ufo) != null && UfoBeam(ufo).isOn)
+                if (ufo != null && Access.UfoBeam(ufo) != null && Access.UfoBeam(ufo).isOn)
                 {
-                    AnimationUpdate(UfoBeam(ufo), elapsed);
+                    Access.AnimationUpdate(Access.UfoBeam(ufo), elapsed);
                     Access.StackEffects(World.world).light_blobs.Add(new LightBlobData { position = a.current_position, radius = 1f });
                 }
             }

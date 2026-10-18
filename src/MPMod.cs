@@ -24,7 +24,9 @@ namespace WorldBoxMP
         {
             Cfg = MPConfig.Load(GetDeclaration().FolderPath);
             SessionLog.Init(GetDeclaration().FolderPath);
+#if WBMP_TESTS
             TestHarness.ParseArgs();
+#endif
             Harmony = new Harmony("doggoz01.worldboxmp");
             Harmony.PatchAll(typeof(MPMod).Assembly);
             Debug.Log("[WorldBoxMP] loaded, protocol " + Net.ProtocolVersion);
@@ -45,21 +47,15 @@ namespace WorldBoxMP
                 HostOnly.Update();
                 SessionLog.Update();
                 HandleHotkeys();
-                TestHarness.Update(this);
+                TestHooks.Update?.Invoke(this);
                 PumpNetwork();
                 if (Net.Role == Role.Host) Safe("host", HostUpdate);
                 if (Net.IsClientConnected) Safe("player", ClientUpdate);
                 NetStats.Update();
                 PlayerNames.Update();
                 RemoteCursor.Update();
-                PlayerLook.Update();
                 Chat.Update();
                 MapPings.Update();
-                if (WorldfallBridge.Present)
-                {
-                    WorldfallBridge.PatchSteering(Harmony);
-                    SoundSync.PatchWorldfall(Harmony);
-                }
             }
             catch (Exception e)
             {
@@ -178,7 +174,7 @@ namespace WorldBoxMP
 
         static void OpenSaves()
         {
-            if (LobbyTest.On) return;
+            if (TestHooks.NoSaveWindow) return;
             try
             {
                 if (ScrollWindow.isAnimationActive()) ScrollWindow.finishAnimations();
@@ -304,7 +300,7 @@ namespace WorldBoxMP
             for (int i = 0; i < 64 && peer.Inbox.TryDequeue(out var pkt); i++)
             {
                 NetStats.CountIn(pkt);
-                if (TestHarness.LagMs > 0) _lagged.Enqueue(new KeyValuePair<double, Packet>(Clock.Now + TestHarness.LagMs / 1000.0, pkt));
+                if (TestHooks.LagMs > 0) _lagged.Enqueue(new KeyValuePair<double, Packet>(Clock.Now + TestHooks.LagMs / 1000.0, pkt));
                 else Handle(pkt);
             }
             while (_lagged.Count > 0 && _lagged.Peek().Key <= Clock.Now)
@@ -315,7 +311,7 @@ namespace WorldBoxMP
 
         void LeaveHost(string tipKey)
         {
-            LobbyTest.LastLeave = tipKey;
+            TestHooks.LastLeave = tipKey;
             _hasWorld = false;
             Net.Stop();
             Rules.ResetClient();
@@ -333,7 +329,7 @@ namespace WorldBoxMP
                 Tip(tipKey);
                 OpenSaves();
             }
-            TestHarness.OnClientDropped();
+            TestHooks.ClientDropped?.Invoke();
         }
 
         void Handle(Packet pkt)
@@ -346,14 +342,18 @@ namespace WorldBoxMP
                     try { if (pkt.Data.Length > 4) password = new BinaryReader(new MemoryStream(pkt.Data, 4, pkt.Data.Length - 4)).ReadString(); }
                     catch { }
                     Guest joined = Net.Current;
+                    if (version != Net.ProtocolVersion)
+                    {
+                        SessionLog.Write("refused " + joined.Label + ": protocol " + version + ", ours " + Net.ProtocolVersion);
+                        Lobby.Refuse(joined, "other_version");
+                        break;
+                    }
                     if (!Lobby.PasswordOk(joined, password))
                     {
                         SessionLog.Write("refused " + joined.Label + ": wrong password");
                         Lobby.Refuse(joined, "wrong_password");
                         break;
                     }
-                    if (version != Net.ProtocolVersion)
-                        Tip("tip_version", version, Net.ProtocolVersion);
                     joined.Peer.Send(Msg.Welcome, new[] { joined.Slot });
                     Rules.SendTo(joined);
                     SendWorldTo(joined);
@@ -412,9 +412,6 @@ namespace WorldBoxMP
                     break;
                 case Msg.Names:
                     PlayerNames.Receive(pkt.Data);
-                    break;
-                case Msg.Look:
-                    PlayerLook.Receive(pkt.Data);
                     break;
                 case Msg.Pos when Net.Role == Role.Client:
                     PositionSync.Receive(pkt.Data);
@@ -529,7 +526,7 @@ namespace WorldBoxMP
             var sw = System.Diagnostics.Stopwatch.StartNew();
             ClientSync.Reset();
             SaveManager.loadMapFromBytes(bytes);
-            TestHarness.OnClientWorldLoaded();
+            TestHooks.WorldLoaded?.Invoke();
             Debug.Log("[WorldBoxMP] loaded host world: " + bytes.Length / 1024 + " KiB in " + sw.ElapsedMilliseconds + " ms");
         }
 

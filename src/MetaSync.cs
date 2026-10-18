@@ -288,17 +288,6 @@ namespace WorldBoxMP
             }
         }
 
-        static readonly AccessTools.FieldRef<MapBox, MapStats> MapStatsRef =
-            AccessTools.FieldRefAccess<MapBox, MapStats>("map_stats");
-        static readonly Action<MapStats> RecalcCounters =
-            AccessTools.MethodDelegate<Action<MapStats>>(AccessTools.Method(typeof(MapStats), "recalcCounters"));
-        static readonly Action<City, TileZone> CityRemoveZone =
-            AccessTools.MethodDelegate<Action<City, TileZone>>(AccessTools.Method(typeof(City), "removeZone"));
-        static readonly Action<Kingdom> KingdomLoad2 =
-            AccessTools.MethodDelegate<Action<Kingdom>>(AccessTools.Method(typeof(Kingdom), "load2"));
-        static readonly AccessTools.FieldRef<City, List<TileZone>> CityZones =
-            AccessTools.FieldRefAccess<City, List<TileZone>>("zones");
-
         static readonly Channel<Kingdom, KingdomData> Kingdoms =
             new Channel<Kingdom, KingdomData>("kingdoms", () => World.world.kingdoms)
             {
@@ -320,14 +309,14 @@ namespace WorldBoxMP
                     long h = (k != null ? k.getID() : -1) * 7919L + (c.leader != null ? c.leader.getID() : -1) * 104729L;
                     unchecked
                     {
-                        foreach (TileZone z in CityZones(c)) h += ((long)z.x * 7919 + z.y) * 31 + 1;
+                        foreach (TileZone z in Access.MetaSyncCityZones(c)) h += ((long)z.x * 7919 + z.y) * 31 + 1;
                     }
                     return h;
                 },
                 Describe = c =>
                 {
                     Kingdom k = Access.CityKingdom(c);
-                    return "kingdom=" + (k != null ? k.getID() + " " + k.name : "none") + " zones=" + CityZones(c).Count +
+                    return "kingdom=" + (k != null ? k.getID() + " " + k.name : "none") + " zones=" + Access.MetaSyncCityZones(c).Count +
                            " leader=" + (c.leader != null ? c.leader.getID().ToString() : "none");
                 },
             };
@@ -433,7 +422,7 @@ namespace WorldBoxMP
                 foreach (long id in repair) w.Write(id);
                 asked += repair.Count;
             }
-            SetDrawnZonesDirty(Access.ZoneCalculator(World.world));
+            Access.SetDrawnZonesDirty(Access.ZoneCalculator(World.world));
             if (asked > 0) Net.Peer?.Send(Msg.MetaRepair, ((MemoryStream)w.BaseStream).ToArray());
         }
 
@@ -505,8 +494,8 @@ namespace WorldBoxMP
             var keep = new HashSet<long>();
             if (data.zones != null)
                 foreach (ZoneData z in data.zones) keep.Add(((long)z.x << 32) | (uint)z.y);
-            foreach (TileZone zone in new List<TileZone>(CityZones(city)))
-                if (!keep.Contains(((long)zone.x << 32) | (uint)zone.y)) CityRemoveZone(city, zone);
+            foreach (TileZone zone in new List<TileZone>(Access.MetaSyncCityZones(city)))
+                if (!keep.Contains(((long)zone.x << 32) | (uint)zone.y)) Access.CityRemoveZone(city, zone);
             Kingdom k = Access.CityKingdom(city);
             bool wasCapital = k != null && k.capital == city;
             city.loadCity(data);
@@ -561,7 +550,7 @@ namespace WorldBoxMP
                     (kingOk ? "" : ":king(" + (k.king != null ? k.king.getID() + (k.king.isRekt() ? "rekt" : "") : "none") + "->" + l.Value + ")"));
                 k.data.capitalID = l.Key;
                 k.data.kingID = l.Value;
-                try { KingdomLoad2(k); Relinks++; }
+                try { Access.KingdomLoad2(k); Relinks++; }
                 catch (Exception e) { Failures++; Debug.Log("[WorldBoxMP] kingdom relink " + k.getID() + ": " + e.Message); }
             }
             foreach (City c in w.cities)
@@ -600,7 +589,7 @@ namespace WorldBoxMP
             foreach (IChannel c in Channels) c.Snapshot();
             Kingdoms.ForceResendAll();
             Cities.ForceResendAll();
-            _lastStatsHash = Json.Write(MapStatsRef(World.world)).GetHashCode();
+            _lastStatsHash = Json.Write(Access.MapStatsRef(World.world)).GetHashCode();
         }
 
         public static int Write(BinaryWriter w, bool full)
@@ -612,7 +601,7 @@ namespace WorldBoxMP
                 w.Write(false);
                 return Changes;
             }
-            string stats = Json.Write(MapStatsRef(World.world));
+            string stats = Json.Write(Access.MapStatsRef(World.world));
             int h = stats.GetHashCode();
             bool statsChanged = h != _lastStatsHash;
             _lastStatsHash = h;
@@ -627,15 +616,15 @@ namespace WorldBoxMP
             if (r.ReadBoolean())
             {
                 MapStats stats = Json.Read<MapStats>(r.ReadString());
-                MapStats old = MapStatsRef(World.world);
+                MapStats old = Access.MapStatsRef(World.world);
                 if (old != null)
                 {
                     stats.id_status = Math.Max(stats.id_status, old.id_status);
                     stats.id_projectile = Math.Max(stats.id_projectile, old.id_projectile);
                 }
-                MapStatsRef(World.world) = stats;
+                Access.MapStatsRef(World.world) = stats;
                 stats.load();
-                RecalcCounters(stats);
+                Access.RecalcCounters(stats);
             }
         }
 
@@ -643,7 +632,7 @@ namespace WorldBoxMP
         {
             foreach (Kingdom k in Kingdoms.Touched)
             {
-                try { KingdomLoad2(k); }
+                try { Access.KingdomLoad2(k); }
                 catch (Exception e) { Failures++; Debug.Log("[WorldBoxMP] kingdom link " + k.getID() + ": " + e.Message); }
             }
             foreach (City c in Cities.Touched)
@@ -652,12 +641,9 @@ namespace WorldBoxMP
                 catch (Exception e) { Failures++; Debug.Log("[WorldBoxMP] city leader " + c.getID() + ": " + e.Message); }
             }
             Relink();
-            if (Kingdoms.Touched.Count > 0 || Cities.Touched.Count > 0) SetDrawnZonesDirty(Access.ZoneCalculator(World.world));
+            if (Kingdoms.Touched.Count > 0 || Cities.Touched.Count > 0) Access.SetDrawnZonesDirty(Access.ZoneCalculator(World.world));
             Kingdoms.Touched.Clear();
             Cities.Touched.Clear();
         }
-
-        static readonly Action<ZoneCalculator> SetDrawnZonesDirty =
-            AccessTools.MethodDelegate<Action<ZoneCalculator>>(AccessTools.Method(typeof(ZoneCalculator), "setDrawnZonesDirty"));
     }
 }

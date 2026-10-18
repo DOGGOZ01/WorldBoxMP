@@ -86,8 +86,6 @@ namespace WorldBoxMP
             }
         }
 
-        private static readonly AccessTools.FieldRef<Projectile, Kingdom> ProjectileKingdom = AccessTools.FieldRefAccess<Projectile, Kingdom>("kingdom");
-
         private static readonly Dictionary<long, double> _stamps = new Dictionary<long, double>();
 
         private static readonly List<Attack> _hostAttacks = new List<Attack>();
@@ -316,7 +314,7 @@ namespace WorldBoxMP
             if (world.projectiles != null && dt > 0f)
             {
                 foreach (Projectile p in world.projectiles.list)
-                    if (ProjectileKingdom(p) == null) ProjectileKingdom(p) = WildKingdomsManager.neutral;
+                    if (Access.ProjectileKingdom(p) == null) Access.ProjectileKingdom(p) = WildKingdomsManager.neutral;
                 world.projectiles.update(Access.Elapsed(world) * (float)Mathf.Clamp(Config.time_scale_asset?.ticks ?? 1, 1, 8));
             }
         }

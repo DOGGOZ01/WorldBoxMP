@@ -12,11 +12,6 @@ namespace WorldBoxMP
         static readonly string[] Names = { "units", "buildings", "tiles" };
         const int BucketCount = 256;
 
-        static readonly Action<ActorManager, Actor> ScheduleActorDestroy =
-            AccessTools.MethodDelegate<Action<ActorManager, Actor>>(AccessTools.Method(typeof(ActorManager), "scheduleDestroyOnPlay"));
-        static readonly Action<Building> RemoveBuildingFinal =
-            AccessTools.MethodDelegate<Action<Building>>(AccessTools.Method(typeof(Building), "removeBuildingFinal"));
-
         static readonly HashSet<byte> _bucketRequests = new HashSet<byte>();
         static readonly Dictionary<byte, HashSet<int>> _itemRequests = new Dictionary<byte, HashSet<int>>();
         static readonly float[] _askedAt = { -100f, -100f, -100f };
@@ -182,7 +177,7 @@ namespace WorldBoxMP
                     if (!host.TryGetValue(a.getID(), out int sig)) extra.Add(a);
                     else if (sig != HostSync.Sig(a)) resend.Add(a.getID());
                 }
-                foreach (Actor a in extra) { RemotePossession.OnClientActorRemoved(a); ScheduleActorDestroy(world.units, a); removed++; }
+                foreach (Actor a in extra) { RemotePossession.OnClientActorRemoved(a); Access.ObjectRepairScheduleActorDestroy(world.units, a); removed++; }
             }
             else
             {
@@ -194,7 +189,7 @@ namespace WorldBoxMP
                     if (!host.TryGetValue(b.getID(), out int sig)) extra.Add(b);
                     else if (sig != HostSync.Sig(b)) resend.Add(b.getID());
                 }
-                foreach (Building b in extra) { RemoveBuildingFinal(b); removed++; }
+                foreach (Building b in extra) { Access.ObjectRepairRemoveBuildingFinal(b); removed++; }
             }
             foreach (long id in host.Keys) if (!mineIds.Contains(id)) resend.Add(id);
             Repaired += removed + resend.Count;

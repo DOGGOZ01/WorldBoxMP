@@ -19,9 +19,7 @@ namespace WorldBoxMP
         static float _lastWindow = -100f;
         static float _lastInput = -100f;
 
-        public static bool ForceInteractive;
-
-        static bool Interactive => ForceInteractive || Time.unscaledTime - _lastWindow < 2f;
+        static bool Interactive => TestHooks.ForceInteractive || Time.unscaledTime - _lastWindow < 2f;
 
         public static int Sent, Applied;
 
@@ -162,7 +160,7 @@ namespace WorldBoxMP
         public static int SpeedChanges;
 
         static bool JustPressed() =>
-            ForceInteractive || Time.unscaledTime - _lastInput < 0.5f || Input.anyKeyDown || Input.GetMouseButtonUp(0) || Input.GetMouseButtonDown(0);
+            TestHooks.ForceInteractive || Time.unscaledTime - _lastInput < 0.5f || Input.anyKeyDown || Input.GetMouseButtonUp(0) || Input.GetMouseButtonDown(0);
 
         public static bool IsPending(string kind, long id) =>
             _pendingUntil.TryGetValue(Key(kind, id), out float until) && Time.unscaledTime < until;
@@ -208,7 +206,7 @@ namespace WorldBoxMP
                     if (a != null && a.isAlive() && seen.Add(a)) count += Compare(w, Units, a.getID(), ReadUnit(a), UnitFields);
             Actor main = SelectedUnit.unit;
             if (main != null && main.isAlive() && seen.Add(main)) count += Compare(w, Units, main.getID(), ReadUnit(main), UnitFields);
-            bool pressed = ForceInteractive || JustPressed();
+            bool pressed = TestHooks.ForceInteractive || JustPressed();
             if (pressed && !Rules.ClientMay(Perm.Speed))
             {
                 string[] now = ReadWorld();
@@ -311,7 +309,7 @@ namespace WorldBoxMP
                 }
                 catch (Exception e)
                 {
-                    SessionLog.Write("edit from the second player failed: " + kind + " " + id + ": " + e.GetBaseException().Message);
+                    SessionLog.Write("edit from a player failed: " + kind + " " + id + ": " + e.GetBaseException().Message);
                 }
             }
         }
@@ -328,7 +326,7 @@ namespace WorldBoxMP
                 else if (f.Key == "paused") Config.paused = f.Value == "1";
             }
             Applied++;
-            SessionLog.Write("edit from the second player: world " + Describe(fields));
+            SessionLog.Write("edit from a player: world " + Describe(fields));
         }
 
         static void ApplyUnit(long id, List<KeyValuePair<string, string>> fields)
@@ -379,7 +377,7 @@ namespace WorldBoxMP
             }
             if (reload) HostSync.Reload(id); else InfoSweep.Push(a);
             Applied++;
-            SessionLog.Write("edit from the second player: unit " + id + " " + Describe(fields));
+            SessionLog.Write("edit from a player: unit " + id + " " + Describe(fields));
         }
 
         static void ApplyMeta(string kind, long id, List<KeyValuePair<string, string>> fields)
@@ -414,7 +412,7 @@ namespace WorldBoxMP
             }
             MetaSync.ForceResend(kind, id);
             Applied++;
-            SessionLog.Write("edit from the second player: " + kind + " " + id + " " + Describe(fields));
+            SessionLog.Write("edit from a player: " + kind + " " + id + " " + Describe(fields));
         }
 
         static string Describe(List<KeyValuePair<string, string>> fields) =>

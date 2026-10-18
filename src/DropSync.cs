@@ -22,14 +22,6 @@ namespace WorldBoxMP
         static readonly Dictionary<Drop, int> _index = new Dictionary<Drop, int>();
         static bool _replaying;
 
-        static readonly AccessTools.FieldRef<Drop, float> HeightZ = AccessTools.FieldRefAccess<Drop, float>("_currentHeightZ");
-        static readonly AccessTools.FieldRef<Drop, bool> Landed = AccessTools.FieldRefAccess<Drop, bool>("_landed");
-        static readonly AccessTools.FieldRef<Drop, Vector2> TargetPosition = AccessTools.FieldRefAccess<Drop, Vector2>("_targetPosition");
-        static readonly AccessTools.FieldRef<Drop, Vector2> StartPosition = AccessTools.FieldRefAccess<Drop, Vector2>("_startPosition");
-        static readonly AccessTools.FieldRef<Drop, float> TargetHeight = AccessTools.FieldRefAccess<Drop, float>("_targetHeight");
-        static readonly AccessTools.FieldRef<Drop, float> TimeToTarget = AccessTools.FieldRefAccess<Drop, float>("_timeToTarget");
-        static readonly AccessTools.FieldRef<Drop, float> FallingSpeed = AccessTools.FieldRefAccess<Drop, float>("_falling_speed");
-
         public static int Sent, Shown;
 
         static bool Recording => HostSync.Tracking && !_replaying;
@@ -106,11 +98,11 @@ namespace WorldBoxMP
         static void Aim(Drop drop, float start, float height, Vector2 target)
         {
             drop.launchParabolic(start, height, height, 0f, 0f);
-            TargetPosition(drop) = target;
-            float dist = Toolbox.DistVec2Float(StartPosition(drop), target);
-            float t = (dist + height * 3f) * 0.25f / Mathf.Max(0.01f, FallingSpeed(drop));
+            Access.TargetPosition(drop) = target;
+            float dist = Toolbox.DistVec2Float(Access.StartPosition(drop), target);
+            float t = (dist + height * 3f) * 0.25f / Mathf.Max(0.01f, Access.FallingSpeed(drop));
             if (t < 1f) t += 0.5f;
-            TimeToTarget(drop) = t;
+            Access.TimeToTarget(drop) = t;
         }
 
         public static void UpdateClient()
@@ -129,7 +121,7 @@ namespace WorldBoxMP
                 {
                     Tile = pTile.data.tile_id,
                     Asset = pAsset.id,
-                    Height = HeightZ(__result),
+                    Height = Access.HeightZ(__result),
                     Scale = __result.transform.localScale.x,
                 });
             }
@@ -144,8 +136,8 @@ namespace WorldBoxMP
                 Rec d = _pending[i];
                 d.Arc = true;
                 d.ArcStart = pStartHeight;
-                d.ArcHeight = TargetHeight(__instance);
-                d.ArcTarget = TargetPosition(__instance);
+                d.ArcHeight = Access.TargetHeight(__instance);
+                d.ArcTarget = Access.TargetPosition(__instance);
                 _pending[i] = d;
             }
         }
@@ -156,7 +148,7 @@ namespace WorldBoxMP
             static bool Prefix(Drop __instance)
             {
                 if (!Net.IsClientConnected) return true;
-                Landed(__instance) = true;
+                Access.Landed(__instance) = true;
                 World.world.drop_manager.landDrop(__instance);
                 return false;
             }

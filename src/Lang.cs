@@ -9,15 +9,6 @@ namespace WorldBoxMP
         const string Prefix = "wbmp_";
         static bool _registered;
 
-        static readonly HarmonyLib.AccessTools.FieldRef<LocalizedTextManager, Dictionary<string, string>> Texts =
-            HarmonyLib.AccessTools.FieldRefAccess<LocalizedTextManager, Dictionary<string, string>>("_localized_text");
-
-        static readonly KeyValuePair<string, string>[] Aliases =
-        {
-            new KeyValuePair<string, string>("disconnect_description", "leave_description"),
-            new KeyValuePair<string, string>("stop_host_description", "leave_description"),
-        };
-
         static readonly Dictionary<string, string> _live = new Dictionary<string, string>();
 
         public static void Register()
@@ -30,11 +21,10 @@ namespace WorldBoxMP
         static void Fill(string lang)
         {
             if (LocalizedTextManager.instance == null) return;
-            Dictionary<string, string> texts = Texts(LocalizedTextManager.instance);
+            Dictionary<string, string> texts = Access.Texts(LocalizedTextManager.instance);
             if (texts == null) return;
             string[] rows = lang != null && Table.TryGetValue(lang, out string[] r) ? r : Table["en"];
             for (int i = 0; i < Keys.Length; i++) texts[Prefix + Keys[i]] = rows[i];
-            foreach (var alias in Aliases) texts[Prefix + alias.Key] = rows[Array.IndexOf(Keys, alias.Value)];
             texts[Prefix + "live_empty"] = "";
             foreach (var kv in _live) texts[kv.Key] = kv.Value;
         }
@@ -55,7 +45,7 @@ namespace WorldBoxMP
 
         static string Current(string key)
         {
-            Dictionary<string, string> texts = LocalizedTextManager.instance != null ? Texts(LocalizedTextManager.instance) : null;
+            Dictionary<string, string> texts = LocalizedTextManager.instance != null ? Access.Texts(LocalizedTextManager.instance) : null;
             if (texts != null && texts.TryGetValue(Prefix + key, out string s) && !string.IsNullOrEmpty(s)) return s;
             return English(key);
         }
@@ -76,7 +66,7 @@ namespace WorldBoxMP
         public static void Live(LocalizedText label, string liveKey, string text)
         {
             if (label == null || LocalizedTextManager.instance == null) return;
-            Dictionary<string, string> texts = Texts(LocalizedTextManager.instance);
+            Dictionary<string, string> texts = Access.Texts(LocalizedTextManager.instance);
             string id = Prefix + "live_" + liveKey;
             if (texts.TryGetValue(id, out string was) && was == text && label.key == id) return;
             texts[id] = text;

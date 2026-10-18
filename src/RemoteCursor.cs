@@ -7,11 +7,6 @@ namespace WorldBoxMP
 {
     public static class RemoteCursor
     {
-        static readonly AccessTools.FieldRef<Texture2D[]> Cursors =
-            AccessTools.StaticFieldRefAccess<Texture2D[]>(AccessTools.Field(typeof(MouseCursor), "_cursors"));
-        static readonly AccessTools.FieldRef<int> CurrentCursor =
-            AccessTools.StaticFieldRefAccess<int>(AccessTools.Field(typeof(MouseCursor), "_cur_cursor"));
-
         const float SendInterval = 0.05f;
 
         static float _sendTimer;
@@ -47,17 +42,9 @@ namespace WorldBoxMP
             _sendTimer = SendInterval;
 
             bool visible = Application.isFocused && Input.mousePresent && !ControllableUnit.isControllingUnit() &&
-                           !World.world.isOverUI() && !WorldfallBridge.InFirstPerson;
+                           !World.world.isOverUI();
             Vector2 pos = World.world.getMousePos();
-            int index = CurrentCursor();
-            if (TestHarness.CursorTest)
-            {
-                Vector3 c = Camera.main.transform.position;
-                float t = Time.unscaledTime;
-                pos = new Vector2(c.x + Mathf.Cos(t) * 6f, c.y + Mathf.Sin(t) * 4f);
-                index = (int)(t * 4f) % 6;
-                visible = true;
-            }
+            int index = Access.CurrentCursor();
             bool changed = visible != _lastVisible || index != _lastIndex || (visible && (pos - _lastPos).sqrMagnitude > 0.0025f);
             if (!changed && _keepAlive > 0f) return;
             _keepAlive = 0.5f;
@@ -121,7 +108,7 @@ namespace WorldBoxMP
 
         public static void Draw()
         {
-            if (!PlayerNames.InSession || Event.current.type != EventType.Repaint || WorldfallBridge.InFirstPerson) return;
+            if (!PlayerNames.InSession || Event.current.type != EventType.Repaint) return;
             foreach (var kv in _hands) DrawHand(kv.Key, kv.Value);
         }
 
@@ -131,7 +118,7 @@ namespace WorldBoxMP
             PlayerInfo player = Roster.Get(slot);
             if (Net.Role == Role.Host && Net.GuestIn(slot) == null) return;
             Camera cam = Camera.main;
-            Texture2D[] textures = Cursors();
+            Texture2D[] textures = Access.Cursors();
             if (cam == null || textures == null || textures.Length == 0) return;
             Texture2D tex = hand.Index < textures.Length && textures[hand.Index] != null ? textures[hand.Index] : textures[0];
             if (tex == null) return;

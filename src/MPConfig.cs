@@ -74,7 +74,7 @@ namespace WorldBoxMP
                 "tick_ms=" + TickMs + "\n" +
                 "# show players' names above the units they control (1 = on, 0 = off)\n" +
                 "show_names=" + (ShowNames ? "1" : "0") + "\n" +
-                "# units the second player is not looking at are re-checked (name, health, level, hunger...) this often,\n" +
+                "# units a player is not looking at are re-checked (name, health, level, hunger...) this often,\n" +
                 "# in seconds; on their screen every 2 s, near it every 5 s; buildings 2.5x slower\n" +
                 "info_refresh_seconds=" + InfoSeconds.ToString(CultureInfo.InvariantCulture) + "\n");
         }

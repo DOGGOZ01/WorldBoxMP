@@ -7,15 +7,10 @@ namespace WorldBoxMP
 {
     public static class Census
     {
-        static readonly AccessTools.FieldRef<StackEffects, List<BaseEffectController>> Controllers =
-            AccessTools.FieldRefAccess<StackEffects, List<BaseEffectController>>("list");
-        static readonly AccessTools.FieldRef<DropManager, int> ActiveDrops =
-            AccessTools.FieldRefAccess<DropManager, int>("_activeIndex");
-
         public static int CountEffects()
         {
             int n = 0;
-            foreach (BaseEffectController c in Controllers(Access.StackEffects(World.world))) n += c.getActiveIndex();
+            foreach (BaseEffectController c in Access.Controllers(Access.StackEffects(World.world))) n += c.getActiveIndex();
             return n;
         }
 
@@ -26,13 +21,13 @@ namespace WorldBoxMP
             try
             {
                 var effects = new SortedDictionary<string, int>();
-                foreach (BaseEffectController c in Controllers(Access.StackEffects(w)))
+                foreach (BaseEffectController c in Access.Controllers(Access.StackEffects(w)))
                 {
                     int n = c.getActiveIndex();
                     if (n > 0 && c.asset != null) effects[c.asset.id] = n;
                 }
                 sb.Append(" effects=").Append(Join(effects));
-                sb.Append(" drops=").Append(ActiveDrops(w.drop_manager));
+                sb.Append(" drops=").Append(Access.ActiveDrops(w.drop_manager));
                 sb.Append(" projectiles=").Append(w.projectiles.Count);
                 sb.Append(" statuses=").Append(w.statuses.Count);
                 var specials = new SortedDictionary<string, int>();

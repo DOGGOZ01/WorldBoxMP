@@ -5,16 +5,13 @@ namespace WorldBoxMP
 {
     public static class Checksum
     {
-        static readonly HarmonyLib.AccessTools.FieldRef<City, System.Collections.Generic.List<TileZone>> CityZones =
-            HarmonyLib.AccessTools.FieldRefAccess<City, System.Collections.Generic.List<TileZone>>("zones");
-
         public static int Matches { get; private set; }
         public static int Mismatches { get; private set; }
         public static int Consecutive { get; private set; }
         static int _seq;
         public const int DumpEvery = 5;
 
-        public static int CityZoneCount(City c) => CityZones(c).Count;
+        public static int CityZoneCount(City c) => Access.CityZones(c).Count;
 
         struct State
         {
@@ -43,7 +40,7 @@ namespace WorldBoxMP
             s.Cities = w.cities.Count;
             long borders = 17;
             foreach (City c in w.cities)
-                foreach (TileZone z in CityZones(c))
+                foreach (TileZone z in Access.CityZones(c))
                     borders += (c.getID() * 1000003L) ^ ((long)z.x * 7919 + z.y);
             s.Borders = borders;
             long names = 17;

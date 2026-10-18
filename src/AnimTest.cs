@@ -58,11 +58,8 @@ namespace WorldBoxMP
         static int _ownFrames, _ownMoving;
         static int _facedLeft, _facedRight, _facingChecks;
         static float _animTimeStart;
-        static int _effectsBefore, _effectsMax;
+        static int _effectsBefore;
         static double _swingBefore;
-
-        public static bool TestAttack;
-        public static Vector2? TestMouse;
 
         class Sampled
         {
@@ -97,13 +94,13 @@ namespace WorldBoxMP
             if (At(13f))
             {
                 StartSampling();
-                RemotePossession.TestMovement = new Vector2(1f, 0f);
+                TestHooks.Movement = new Vector2(1f, 0f);
                 _start = _own != null ? _own.current_position : Vector2.zero;
             }
             if (In(13f, 16f)) Sample();
             if (At(16f))
             {
-                RemotePossession.TestMovement = Vector2.zero;
+                TestHooks.Movement = Vector2.zero;
                 Report("while holding a unit");
                 Check("the held unit walks", _own != null && (_own.current_position - _start).magnitude > 1f,
                     _own != null ? "moved " + (_own.current_position - _start).magnitude.ToString("0.0") : "no unit");
@@ -111,17 +108,17 @@ namespace WorldBoxMP
             }
             if (At(17f) && _own != null)
             {
-                TestMouse = _own.current_position + new Vector2(-4f, 0f);
-                TestAttack = true;
+                TestHooks.Mouse = _own.current_position + new Vector2(-4f, 0f);
+                TestHooks.Attack = true;
                 _effectsBefore = EffectSync.SlashesShown;
                 _swingBefore = Access.LastAttack(_own);
             }
-            if (At(19f) && _own != null) TestMouse = _own.current_position + new Vector2(4f, 0f);
+            if (At(19f) && _own != null) TestHooks.Mouse = _own.current_position + new Vector2(4f, 0f);
             if (In(17.3f, 19f) || In(19.3f, 21f)) Facing();
             if (At(21f))
             {
-                TestAttack = false;
-                TestMouse = null;
+                TestHooks.Attack = false;
+                TestHooks.Mouse = null;
                 Check("the held unit faces the mouse", _facingChecks > 0 && _facedLeft > _facingChecks / 4 && _facedRight > _facingChecks / 4,
                     "left " + _facedLeft + ", right " + _facedRight + " of " + _facingChecks);
                 int effects = EffectSync.SlashesShown - _effectsBefore;
@@ -274,10 +271,10 @@ namespace WorldBoxMP
 
         static void Facing()
         {
-            if (_own == null || !TestMouse.HasValue) return;
+            if (_own == null || !TestHooks.Mouse.HasValue) return;
             _facingChecks++;
             bool facesLeft = !Access.Flip(_own);
-            if (TestMouse.Value.x < _own.current_position.x) { if (facesLeft) _facedLeft++; }
+            if (TestHooks.Mouse.Value.x < _own.current_position.x) { if (facesLeft) _facedLeft++; }
             else if (!facesLeft) _facedRight++;
         }
 
@@ -301,7 +298,7 @@ namespace WorldBoxMP
                 {
                     _oldCode = SteamSession.InviteCode;
                     _ballsBefore = RemoteMagnet.Balls;
-                    SteamSession.TestLoseLobby = true;
+                    TestHooks.LoseLobby = true;
                 }
                 if (At(26f))
                     Check("host: a lost Steam lobby opens again", !SteamSession.Available ||

@@ -160,11 +160,11 @@ namespace WorldBoxMP
             bool ours;
             try { ours = _lobby.Value.IsOwnedBy(SteamClient.SteamId) && _lobby.Value.MemberCount > 0; }
             catch { ours = false; }
-            if (ours || TestLoseLobby) { _lobbyMissing = TestLoseLobby ? _lobbyMissing + 1 : 0; if (!TestLoseLobby) return true; }
+            if (ours || TestHooks.LoseLobby) { _lobbyMissing = TestHooks.LoseLobby ? _lobbyMissing + 1 : 0; if (!TestHooks.LoseLobby) return true; }
             else _lobbyMissing++;
             if (_lobbyMissing < 2) return true;
             _lobbyMissing = 0;
-            TestLoseLobby = false;
+            TestHooks.LoseLobby = false;
             ulong old = _lobby.Value.Id.Value;
             try { _lobby.Value.Leave(); } catch { }
             _lobby = null;
@@ -175,8 +175,6 @@ namespace WorldBoxMP
             Host();
             return false;
         }
-
-        public static bool TestLoseLobby;
 
         public static void ApplyVisibility()
         {
@@ -376,7 +374,13 @@ namespace WorldBoxMP
                 _lobby = lobby;
                 string theirs = lobby.GetData("wbmp_protocol");
                 if (theirs != Net.ProtocolVersion.ToString())
+                {
                     MPMod.Tip("tip_version", theirs, Net.ProtocolVersion);
+                    lobby.Leave();
+                    _lobby = null;
+                    SessionLog.Stop();
+                    return;
+                }
 
                 Friend owner = lobby.Owner;
                 if (owner.Id == SteamClient.SteamId)

@@ -173,12 +173,8 @@ namespace WorldBoxMP
             }
         }
 
-        static readonly AccessTools.FieldRef<PowersTab, PowerTabAsset> TabAssetRef = AccessTools.FieldRefAccess<PowersTab, PowerTabAsset>("_asset");
-        static readonly AccessTools.FieldRef<PowerButton, GodPower> ButtonPowerRef = AccessTools.FieldRefAccess<PowerButton, GodPower>("godPower");
-        static readonly AccessTools.FieldRef<PowerButtonSelector> SelectorInstance =
-            AccessTools.StaticFieldRefAccess<PowerButtonSelector>(AccessTools.Field(typeof(PowerButtonSelector), "instance"));
-        static PowerTabAsset TabAsset(PowersTab t) => TabAssetRef(t);
-        static GodPower ButtonPower(PowerButton b) => ButtonPowerRef(b);
+        static PowerTabAsset TabAsset(PowersTab t) => Access.TabAssetRef(t);
+        static GodPower ButtonPower(PowerButton b) => Access.ButtonPowerRef(b);
 
         public static void ResetHost()
         {
@@ -299,7 +295,7 @@ namespace WorldBoxMP
             if (active != null && TabAsset(active) != null && TabPerms.TryGetValue(TabAsset(active).id, out Perm tp) && !ClientMay(tp))
                 PowersTab.unselect();
             if (World.world.selected_power != null && !ClientMayPower(World.world.selected_power))
-                SelectorInstance()?.unselectAll();
+                Access.SelectorInstance()?.unselectAll();
             if (!ClientMay(Perm.Possess) && ControllableUnit.isControllingUnit())
             {
                 foreach (Actor a in new List<Actor>(ControllableUnit.getCotrolledUnits()))

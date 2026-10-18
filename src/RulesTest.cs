@@ -140,7 +140,7 @@ namespace WorldBoxMP
             if (At(76f))
             {
                 Actor T = Pick(0), V = Human();
-                Check("host: T still the host's, not the second player's", RemotePossession.HostControls(T) && !RemotePossession.IsRemote(T));
+                Check("host: T still the host's, not the player's", RemotePossession.HostControls(T) && !RemotePossession.IsRemote(T));
                 Check("host: item given through the host", ItemIn(V) == Weapon(), V?.getID() + " " + ItemIn(V));
                 ControllableUnit.clear();
                 Debug.Log("[WorldBoxMP] test: rules host released T");
@@ -150,7 +150,7 @@ namespace WorldBoxMP
                 _uChecked = true;
                 Actor U = HeldByPlayer();
                 _uId = U.getID();
-                Check("host: second player holds U", RemotePossession.IsRemote(U), U?.getID().ToString());
+                Check("host: player holds U", RemotePossession.IsRemote(U), U?.getID().ToString());
                 ControllableUnit.setControllableCreature(U);
                 Check("host: host cannot take U", !RemotePossession.HostControls(U));
                 WorldTile goal = World.world.GetTile(Center.x, Center.y);
@@ -171,7 +171,7 @@ namespace WorldBoxMP
                 Check("host: U let go after possession was turned off", !RemotePossession.IsRemote(World.world.units.get(_uId)));
                 Rules.Toggle(Perm.Possess);
             }
-            if (At(170f)) { if (!_uChecked) Check("host: second player holds U", false, "never"); Debug.Log("[WorldBoxMP] test: rules host done"); }
+            if (At(170f)) { if (!_uChecked) Check("host: player holds U", false, "never"); Debug.Log("[WorldBoxMP] test: rules host done"); }
         }
 
         static void Client(AtFn At, PlayerControl pc)
@@ -194,7 +194,7 @@ namespace WorldBoxMP
                 Check("client: power not sent when off", Powers.SentCount == sentBefore, (Powers.SentCount - sentBefore).ToString());
                 ControllableUnit.setControllableCreature(T);
                 Check("client: possession refused when off", !ControllableUnit.isControllingUnit(T));
-                PlayerEdits.ForceInteractive = true;
+                TestHooks.ForceInteractive = true;
                 Config.setWorldSpeed(AssetManager.time_scales.get("x5"));
                 for (int i = 0; i < 4; i++) Powers.SendClick(Center + new Vector2Int(i * 2 - 4, 12), AssetManager.powers.get("human"));
                 Powers.SendClick(Center + Off, AssetManager.powers.get("tile_mountains"));
@@ -212,7 +212,7 @@ namespace WorldBoxMP
             }
             if (At(44f))
             {
-                PlayerEdits.ForceInteractive = false;
+                TestHooks.ForceInteractive = false;
                 Check("client: speed back to the host's", Config.time_scale_asset?.id == "x1", Config.time_scale_asset?.id);
                 Check("client: T keeps its name", Pick(0)?.getName() != "HACKED", Pick(0)?.getName());
                 Check("client: holds nothing", !ControllableUnit.isControllingUnit());

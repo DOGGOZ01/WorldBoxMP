@@ -13,10 +13,6 @@ namespace WorldBoxMP
         static string _uiFolder;
         public static string UiFolder => _uiFolder ?? ".";
         static float _uiClock = -1f;
-        public static string Name;
-        public static bool CursorTest;
-        public static int LagMs;
-        public static int RateKiBps;
         static bool _slotStarted;
         static float _slotWait;
 
@@ -43,20 +39,24 @@ namespace WorldBoxMP
                     case "-wbmpshot": _shotPath = next; break;
                     case "-wbmptest": _powerTest = true; break;
                     case "-wbmpslot": _slot = int.Parse(next); break;
-                    case "-wbmpname": Name = next; break;
+                    case "-wbmpname": TestHooks.Name = next; break;
                     case "-wbmppass": Lobby.Password = next ?? ""; Net.JoinPassword = next ?? ""; break;
                     case "-wbmprules": RulesTest.On = true; break;
-                    case "-wbmplobby": LobbyTest.On = true; break;
+                    case "-wbmplobby": LobbyTest.On = true; TestHooks.NoSaveWindow = true; break;
                     case "-wbmpanim": AnimTest.On = true; break;
                     case "-wbmpui": _uiFolder = next; break;
                     case "-wbmpfake": BrowserWindow.FakeLobbies = int.Parse(next); break;
                     case "-wbmpnofix": Replacements.Disabled = true; break;
-                    case "-wbmplag": LagMs = int.Parse(next); break;
-                    case "-wbmprate": RateKiBps = int.Parse(next); break;
+                    case "-wbmplag": TestHooks.LagMs = int.Parse(next); break;
+                    case "-wbmprate": TestHooks.RateKiBps = int.Parse(next); break;
+                    case "-wbmpproto": TestHooks.Protocol = int.Parse(next); break;
                 }
             }
+            TestHooks.Update = Update;
+            TestHooks.ClientDropped = OnClientDropped;
+            TestHooks.WorldLoaded = OnClientWorldLoaded;
             if (_autoRole != null || _shotPath != null || _powerTest)
-                Debug.Log("[WorldBoxMP] test harness: role=" + _autoRole + " name=" + Name + " shot=" + _shotPath + " powertest=" + _powerTest);
+                Debug.Log("[WorldBoxMP] test harness: role=" + _autoRole + " name=" + TestHooks.Name + " shot=" + _shotPath + " powertest=" + _powerTest);
         }
 
         public static void OnClientDropped()

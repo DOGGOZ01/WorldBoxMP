@@ -8,17 +8,9 @@ namespace WorldBoxMP
 {
     public static class Orders
     {
-        static readonly Func<PlayerControl, Actor, WorldTile, bool, bool> MoveOne =
-            AccessTools.MethodDelegate<Func<PlayerControl, Actor, WorldTile, bool, bool>>(AccessTools.Method(typeof(PlayerControl), "tryToMoveSelectedUnit"));
-
         public static int Sent, Applied;
 
         public static bool Replaying;
-
-        static readonly AccessTools.FieldRef<PlayerControl, Vector2> SquareStart =
-            AccessTools.FieldRefAccess<PlayerControl, Vector2>("square_selection_position_current");
-
-        public static Vector2? TestBoxEnd;
 
         [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.getUnitsToBeSelected))]
         static class ClientBoxSelection
@@ -26,7 +18,7 @@ namespace WorldBoxMP
             static bool Prefix(PlayerControl __instance, ref ListPool<Actor> __result)
             {
                 if (!Net.IsClientConnected) return true;
-                Vector2 a = SquareStart(__instance), b = TestBoxEnd ?? __instance.getMousePos();
+                Vector2 a = Access.SquareStart(__instance), b = __instance.getMousePos();
                 int x0 = Mathf.FloorToInt(a.x), y0 = Mathf.FloorToInt(a.y), x1 = Mathf.FloorToInt(b.x), y1 = Mathf.FloorToInt(b.y);
                 __result = null;
                 if (x0 == -1 || y0 == -1 || x1 == -1 || y1 == -1) return false;
@@ -129,15 +121,15 @@ namespace WorldBoxMP
                     a.cancelAllBeh();
                     a.addAggro(target);
                     a.startFightingWith(target);
-                    if (Toolbox.DistTile(a.current_tile, target.current_tile) > 7f) MoveOne(pc, a, tile, false);
+                    if (Toolbox.DistTile(a.current_tile, target.current_tile) > 7f) Access.MoveOne(pc, a, tile, false);
                 }
-                else next = MoveOne(pc, a, tile, true);
+                else next = Access.MoveOne(pc, a, tile, true);
                 if (next) { moved++; tile = tile.getNeighbourTileSameIsland(); }
             }
             }
             finally { Replaying = false; }
             Applied++;
-            SessionLog.Write("order from the second player: " + units.Count + " unit(s) " + (attack && target != null ? "attack " + target.getID() : "go, " + moved + " moving") + " to " + tiles[tileId].x + ":" + tiles[tileId].y);
+            SessionLog.Write("order from a player: " + units.Count + " unit(s) " + (attack && target != null ? "attack " + target.getID() : "go, " + moved + " moving") + " to " + tiles[tileId].x + ":" + tiles[tileId].y);
         }
     }
 }
